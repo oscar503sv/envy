@@ -1,0 +1,86 @@
+# Envy
+
+[English](README.md) · **Español**
+
+> *Your environments, beautifully organized.*
+
+Envy es un editor de archivos dotenv (`.env`) local-first y nativo de GNOME. Abre un archivo y cambia una variable en segundos, o ten a un clic los archivos de entorno de todos tus proyectos, sin abrir un IDE y sin que Envy reformatee tu archivo.
+
+> **Estado: pre-alpha, en planificación.** Todavía no hay una aplicación utilizable. Los requisitos de producto, el diseño técnico y el plan de entrega de v0.1.0 están en [`docs/`](docs/). La primera versión, v0.1.0, está estimada para marzo de 2027.
+
+## Por qué Envy
+
+Cambiar una sola variable no debería requerir un IDE. Los editores de texto generales no ofrecen una vista estructurada de las asignaciones, no protegen los secretos en pantalla, no organizan los archivos por proyecto ni avisan cuando otro proceso (un script, la herramienta de un compañero o un agente de IA) modifica el archivo que estás editando.
+
+Envy pretende hacer exactamente eso y nada más: **no** es un gestor de secretos remoto, ni un IDE, ni una herramienta de despliegue.
+
+## Funciones previstas (v0.1.0)
+
+**Quick Edit**: `envy .env` desde una terminal, o abre cualquier archivo desde el selector.
+
+- Vista estructurada de las asignaciones, con búsqueda por clave.
+- Edición de valores sin comillas, con comillas simples, con comillas dobles y multilínea.
+- Añadir y eliminar claves, pegar bloques de líneas `KEY=value` con previsualización, y copiar un valor o el documento completo.
+- Deshacer y rehacer.
+- Los valores que parecen secretos (contraseñas, tokens, claves) se ocultan en pantalla hasta que los revelas.
+
+**Workspace**: registra carpetas de proyectos locales y sus subcarpetas de servicio (`backend/`, `frontend/`…).
+
+- Ve todos los archivos `.env`, `.env.*` y `*.env` de un proyecto sin recorrer el sistema de archivos.
+- Etiquetas de entorno (desarrollo, staging, producción) mostradas como texto, no solo con color.
+- Compara un archivo con su `.env.example` y añade las claves que faltan.
+- Avisos de claves duplicadas.
+
+**Seguridad de archivos**, en ambos modos:
+
+- **Sin pérdidas:** abrir y guardar sin cambios produce exactamente los mismos bytes. Editar un valor cambia solo ese valor, nunca los comentarios, las comillas, los espacios, los saltos de línea ni el BOM.
+- **Cambios externos:** si el archivo cambia en disco y no tienes ediciones locales, Envy lo recarga. Si tienes ediciones locales, Envy muestra un conflicto y nunca descarta ninguna de las dos versiones sin una decisión explícita tuya.
+- **Guardado seguro:** reemplazo condicional con verificación posterior, permisos conservados (p. ej. `0600`), sin sobrescrituras silenciosas y sin copias de respaldo de tus secretos.
+- **Enlaces simbólicos:** nunca se reemplazan por archivos regulares.
+
+## Privacidad
+
+- Todo permanece en tu equipo: sin cuentas, sin nube, sin sincronización y sin telemetría.
+- Los valores de las variables nunca se escriben en logs, mensajes de error ni en la configuración de Envy. El catálogo de proyectos solo guarda rutas, nombres y etiquetas.
+- Envy nunca ejecuta ni expande nada: `$VAR`, `${VAR}` y `$(command)` se muestran como texto literal.
+- Solo se copia al portapapeles cuando lo pides. Ten en cuenta que el portapapeles puede conservar secretos.
+
+## Sintaxis admitida
+
+Envy admite un subconjunto documentado de dotenv:
+
+- `KEY=value`, `KEY='value'`, `KEY="value"` y valores entre comillas que ocupan varias líneas.
+- Prefijo `export` opcional.
+- Líneas de comentario (`# …`) y comentarios al final (` # …`, precedidos de un espacio).
+- Las comillas dobles reconocen `\\`, `\"`, `\n`, `\r` y `\t`. Las comillas simples son totalmente literales.
+
+Todo lo que queda fuera del subconjunto se muestra en solo lectura como "sintaxis no editable" y se conserva byte a byte. Las reglas completas estarán en `docs/SYNTAX.md`.
+
+## Instalación
+
+Todavía no está disponible. v0.1.0 se distribuirá como Flatpak y se enviará a Flathub después del lanzamiento. También se admitirán compilaciones nativas.
+
+## Compilar desde el código fuente
+
+Todavía no hay código. El stack previsto es:
+
+- Rust (estable, edición 2024)
+- GTK 4 y libadwaita
+- Gio para el acceso, la monitorización y el guardado de archivos
+- Flatpak con el runtime de GNOME
+
+Las versiones mínimas exactas y el sistema de build se deciden durante el primer sprint. Esta sección se completará con instrucciones paso a paso en cuanto el proyecto compile.
+
+## Documentación
+
+- [Requisitos de producto (PRD)](docs/PRD.md)
+- [Diseño técnico](docs/TECHNICAL_DESIGN.md)
+- [Planificación de v0.1.0](docs/planning/): roadmap, plan de sprints, backlog, hitos, riesgos, decisiones y definición de terminado
+
+## Contribuir
+
+Las contribuciones serán bienvenidas en cuanto esté lista la base del proyecto. Lee primero [CONTRIBUTING.es.md](CONTRIBUTING.es.md). **Nunca incluyas secretos reales** en issues, pull requests, capturas de pantalla ni fixtures de prueba.
+
+## Licencia
+
+Envy es software libre, publicado bajo la [Licencia Pública General de GNU v3.0 o posterior](LICENSE) (`GPL-3.0-or-later`).

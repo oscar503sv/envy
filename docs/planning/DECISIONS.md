@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de decisiones
 
-> **Estado (plan v2, 2026-11-20):** resueltas **D-01**, **D-02**, **D-03**, **D-11** y **D-32** (aprobadas por el usuario). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
+> **Estado (plan v2, 2026-11-20):** resueltas **D-01**, **D-02**, **D-03**, **D-08**, **D-11** y **D-32** (aprobadas por el usuario). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
 > **Regla:** este documento no modifica [`docs/PRD.md`](../PRD.md) ni [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md). Los cambios que esos documentos necesiten se registran como propuestas en la §3 para que el usuario los apruebe y los aplique.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [RISKS](RISKS.md) · [MILESTONES](MILESTONES.md)
 
@@ -120,7 +120,8 @@ Cada decisión indica: contexto, opciones, recomendación, impacto si se retrasa
 - **Fecha límite recomendada:** S07 (ENV-T033), 2027-01-04; **obligatoria:** S12 (ENV-T077), 2027-02-08 (ENV-T078 en S13).
 
 <a id="d-08"></a>
-#### D-08 — Confirmar licencia GPL-3.0-or-later
+#### D-08 — Confirmar licencia GPL-3.0-or-later — **RESUELTA**
+- **Resolución (2026-11-20):** el usuario confirma GPL-3.0-or-later. Se añade el texto oficial de la GPL v3 en `LICENSE` y la licencia se declara en README y CONTRIBUTING.
 - **Fecha límite:** antes de publicar cualquier repositorio público; como muy tarde S14 (ENV-T083), 2027-02-22.
 
 <a id="d-11"></a>
