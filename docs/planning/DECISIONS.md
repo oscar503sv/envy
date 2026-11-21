@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de decisiones
 
-> **Estado (plan v2, 2026-11-20):** resueltas **D-01**, **D-02**, **D-03** y **D-32** (aprobadas por el usuario). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
+> **Estado (plan v2, 2026-11-20):** resueltas **D-01**, **D-02**, **D-03**, **D-11** y **D-32** (aprobadas por el usuario). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
 > **Regla:** este documento no modifica [`docs/PRD.md`](../PRD.md) ni [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md). Los cambios que esos documentos necesiten se registran como propuestas en la §3 para que el usuario los apruebe y los aplique.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [RISKS](RISKS.md) · [MILESTONES](MILESTONES.md)
 
@@ -124,7 +124,18 @@ Cada decisión indica: contexto, opciones, recomendación, impacto si se retrasa
 - **Fecha límite:** antes de publicar cualquier repositorio público; como muy tarde S14 (ENV-T083), 2027-02-22.
 
 <a id="d-11"></a>
-#### D-11 — Subconjunto de sintaxis dotenv v0.1
+#### D-11 — Subconjunto de sintaxis dotenv v0.1 — **RESUELTA**
+- **Resolución (2026-11-20):** el usuario aprueba la propuesta siguiente. ENV-T006 la desarrolla en docs/SYNTAX.md con un fixture por regla; ENV-T010 la implementa.
+  1. **Comillas dobles:** escapes reconocidos `\\`, `\"`, `\n`, `\r`, `\t`; cualquier otro `\X` se muestra literal. Los saltos de línea reales dentro de comillas se conservan como saltos reales. `$VAR`, `${VAR}` y `$(cmd)` son texto literal (nunca se expanden) y la UI avisa de que otras herramientas sí expanden `${…}`.
+  2. **Comillas simples:** literales, sin escapes; un valor nuevo con `'` produce `NeedsConversion` hacia comillas dobles, solo con confirmación.
+  3. **Sin comillas:** el valor termina en fin de línea o en ` #`; espacios finales no forman parte del valor (sufijo preservado); espacios internos sí. Valores nuevos con saltos de línea o espacios al inicio/final producen `NeedsConversion` hacia comillas dobles.
+  4. **Tras la comilla de cierre** solo se aceptan espacios y un comentario opcional; cualquier otra cosa convierte la línea en `Raw`.
+  5. **Comentarios:** `#` como primer carácter no blanco = línea de comentario. Comentario final solo si `#` va precedido de al menos un espacio o tabulador (`PASS=ab#cd` y `URL=…/#frag` conservan el `#` en el valor). Dentro de comillas, `#` es siempre contenido.
+  6. **Comillas sin cerrar:** desde la línea que abre hasta EOF todo queda `Raw`, con diagnóstico visible ("Comillas sin cerrar en la línea N; el resto del archivo no es editable hasta corregirlo"). Bytes preservados.
+  7. **BOM:** atributo del documento (`bom: bool`), fuera de cualquier nodo; se serializa primero; nunca se añade ni se quita.
+  8. **Salto de línea de contenido nuevo:** estilo dominante por recuento (`LF`/`CRLF`/`CR`); empate → estilo del último terminador; sin terminadores → `LF`. El texto pegado se normaliza al estilo dominante, incluidos los saltos dentro de valores multilínea.
+  9. **Newline final:** al insertar al final, si el archivo acababa en newline la línea nueva termina en newline; si no, se añade el terminador a la antigua última línea y la nueva queda sin newline final; archivo vacío → la línea nueva termina en `LF`. Al eliminar la última línea de un archivo sin newline final, se quita el terminador de la nueva última línea.
+  10. **Otras reglas:** `export` + espacio(s)/tab + clave válida, preservado como prefijo (`export KEY` sin `=` → `Raw`); espacios alrededor de `=` y antes de la clave permitidos y preservados; `KEY=` es valor vacío editable; clave fuera de `^[A-Za-z_][A-Za-z0-9_]*$` o línea sin `=` → `Raw`; líneas vacías o solo con espacios → `Empty`.
 - **Contexto:** PRD §13 deja abiertos `export`, escapes, comentarios finales y otros dialectos. ENV-T006 redacta la propuesta (docs/SYNTAX.md) con preguntas concretas, entre ellas:
   - Escapes admitidos en comillas dobles y si las simples son literales.
   - Cuándo un `#` sin comillas inicia comentario (¿exige espacio previo?).
