@@ -3,7 +3,7 @@
 use std::{collections::HashSet, ops::Range};
 
 use super::{
-    error::NodeKindTag,
+    error::{LineNumber, NodeKindTag},
     redact::Redacted,
     syntax::{AssignmentSyntax, LineTerminator},
 };
@@ -107,6 +107,7 @@ pub struct EnvDocument {
     bom: bool,
     nodes: Vec<EnvNode>,
     next_id: u64,
+    unclosed_quote: Option<LineNumber>,
 }
 
 impl EnvDocument {
@@ -116,6 +117,7 @@ impl EnvDocument {
             source: Redacted::new(source),
             nodes: Vec::new(),
             next_id: 0,
+            unclosed_quote: None,
         }
     }
 
@@ -129,6 +131,19 @@ impl EnvDocument {
 
     pub fn body_start(&self) -> usize {
         if self.bom { UTF8_BOM.len() } else { 0 }
+    }
+
+    /// 1-based physical line where the first unclosed quote opens, if any.
+    ///
+    /// Everything from that line to EOF is a single `Raw` node (SYNTAX §5.6).
+    /// Only the line number is stored, never content; the UI builds the
+    /// user-facing message from it.
+    pub fn unclosed_quote_line(&self) -> Option<LineNumber> {
+        self.unclosed_quote
+    }
+
+    pub(crate) fn set_unclosed_quote(&mut self, line: Option<LineNumber>) {
+        self.unclosed_quote = line;
     }
 
     pub fn nodes(&self) -> &[EnvNode] {

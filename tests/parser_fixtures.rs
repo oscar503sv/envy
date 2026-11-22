@@ -1,8 +1,6 @@
-//! Compares the parser (ENV-T010) with the ENV-T007 oracle descriptors.
+//! Compares the parser with the ENV-T007 oracle descriptors, row by row.
 //!
-//! Multi-line rows belong to ENV-T011. For fixtures that contain them, every
-//! row before the first multi-line row is still compared, because T010 nodes
-//! are independent per line. Failure messages never print keys or values.
+//! Failure messages never print keys or values.
 
 #![allow(
     clippy::expect_used,
@@ -60,13 +58,29 @@ fn unescape_descriptor(field: &str) -> Vec<u8> {
     out
 }
 
+/// Real terminators are displayed as LF (SYNTAX §6.1).
+fn normalize_terminators(raw: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(raw.len());
+    let mut iter = raw.iter().copied().peekable();
+    while let Some(byte) = iter.next() {
+        if byte == b'\r' {
+            iter.next_if_eq(&b'\n');
+            out.push(b'\n');
+        } else {
+            out.push(byte);
+        }
+    }
+    out
+}
+
 /// Displayed value per SYNTAX §5.3 / §6.1 for single-line raw bytes.
 fn display_value(quote: QuoteStyle, raw: &[u8]) -> Vec<u8> {
+    let raw = normalize_terminators(raw);
     if quote != QuoteStyle::Double {
-        return raw.to_vec();
+        return raw;
     }
     let mut out = Vec::new();
-    let mut iter = raw.iter().copied();
+    let mut iter = raw.into_iter();
     while let Some(byte) = iter.next() {
         if byte != b'\\' {
             out.push(byte);
@@ -85,11 +99,13 @@ fn display_value(quote: QuoteStyle, raw: &[u8]) -> Vec<u8> {
     out
 }
 
-fn is_multi_line(range: &str) -> bool {
-    match range.split_once('-') {
-        Some((a, b)) => a != b,
-        None => false,
-    }
+/// Parses the descriptor line field `N` or `N-M` into (first, last).
+fn parse_line_range(field: &str) -> (usize, usize) {
+    let (first, last) = field.split_once('-').unwrap_or((field, field));
+    (
+        first.parse().expect("line number"),
+        last.parse().expect("line number"),
+    )
 }
 
 fn line_number_of(doc: &EnvDocument, start: usize) -> usize {
@@ -102,8 +118,7 @@ fn line_number_of(doc: &EnvDocument, start: usize) -> usize {
 
 #[test]
 fn parser_agrees_with_oracle_descriptors() {
-    let mut full = Vec::new();
-    let mut partial = Vec::new();
+    let mut compared = Vec::new();
     let mut entries: Vec<_> = fs::read_dir(fixtures_dir().join("expected"))
         .expect("expected/ must exist")
         .filter_map(Result::ok)
@@ -137,30 +152,28 @@ fn parser_agrees_with_oracle_descriptors() {
         assert!(doc.has_bom() == (header == "bom=true"), "{fixture}: bom");
 
         let rows: Vec<&str> = rows.filter(|r| !r.is_empty()).collect();
-        let comparable = rows
-            .iter()
-            .position(|row| is_multi_line(row.split('\t').nth(1).unwrap_or_default()))
-            .unwrap_or(rows.len());
-        let is_full = comparable == rows.len();
-        if is_full {
-            assert!(doc.nodes().len() == rows.len(), "{fixture}: node count");
-            full.push(fixture.to_owned());
-        } else {
-            assert!(doc.nodes().len() >= comparable, "{fixture}: node count");
-            partial.push(format!("{fixture} ({comparable}/{} rows)", rows.len()));
-        }
+        assert!(doc.nodes().len() == rows.len(), "{fixture}: node count");
+        compared.push(fixture.to_owned());
 
-        for (index, row) in rows.iter().take(comparable).enumerate() {
+        for (index, row) in rows.iter().enumerate() {
             let row_number = index + 1;
             let fields: Vec<&str> = row.split('\t').collect();
             let node = doc.nodes().get(index).expect("node exists");
             let NodeOrigin::Source(span) = node.origin() else {
                 panic!("{fixture}: node {row_number} must be a source node");
             };
-            let expected_line: usize = fields[1].parse().expect("single line number");
+            let (first_line, last_line) = parse_line_range(fields[1]);
             assert!(
-                line_number_of(&doc, span.start) == expected_line,
-                "{fixture}: row {row_number} line number"
+                line_number_of(&doc, span.start) == first_line,
+                "{fixture}: row {row_number} first line"
+            );
+            let covered_lines = split_lines(doc.source(), doc.body_start())
+                .iter()
+                .filter(|line| line.span.start < span.end)
+                .count();
+            assert!(
+                covered_lines == last_line,
+                "{fixture}: row {row_number} last line"
             );
             assert!(
                 terminator_tag(node.terminator()) == fields[2],
@@ -204,9 +217,34 @@ fn parser_agrees_with_oracle_descriptors() {
         }
     }
 
-    println!("fully compared: {full:?}");
-    println!("prefix compared (rest is ENV-T011): {partial:?}");
-    assert!(!full.is_empty());
+    println!("compared: {compared:?}");
+    assert!(compared.len() >= 20);
+}
+
+#[test]
+fn unclosed_quote_diagnostic_matches_fixtures() {
+    {
+        let (fixture, expected_line) = ("unclosed-quotes.env", 3);
+        let bytes = fs::read(fixtures_dir().join(fixture)).expect("fixture readable");
+        let doc = parse(bytes).expect("fixture parses");
+        assert!(
+            doc.unclosed_quote_line().map(|line| line.get()) == Some(expected_line),
+            "{fixture}: unclosed quote line"
+        );
+    }
+    for fixture in [
+        "unclosed-quote-middle.env",
+        "quoted-multiline.env",
+        "only-cr.env",
+        "plain.env",
+    ] {
+        let bytes = fs::read(fixtures_dir().join(fixture)).expect("fixture readable");
+        let doc = parse(bytes).expect("fixture parses");
+        assert!(
+            doc.unclosed_quote_line().is_none(),
+            "{fixture}: no diagnostic"
+        );
+    }
 }
 
 #[test]
