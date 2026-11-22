@@ -720,6 +720,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Tests unitarios por cada viñeta de PRD US-03 sobre pegado.
 
+**Heredado del QA de ENV-T019 (2026-11-22):** (1) dentro de un lote no se puede insertar y luego editar el nodo nuevo (su `created_id` solo se conoce al aplicar): `PastePlan` debe llevar el valor final dentro de `InsertAssignment`. (2) Un lote `[eliminar la última línea sin terminar, insertar]` puede cambiar el salto de línea de la línea anterior (SYN-08 lo quita y SYN-07 lo vuelve a poner con el dominante nuevo); es conforme a la especificación, pero visible en un flujo de "reemplazar". (3) Los bytes `after` de cada comando dentro de un `Batch` pueden no estar vigentes al final del lote; no usarlos como estado final.
+
 <a id="env-t022"></a>
 #### ENV-T022 — Implementar la heurística de secretos por nombre de clave
 
@@ -875,6 +877,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Heredado de la revisión de seguridad del spike ENV-T025 (2026-11-22):** `base` debe capturar hash, `etag::value`, **dev + inodo**, uid, gid, modo, nlink, si es symlink, propietario/modo/sticky del directorio padre, presencia de ACL (`system.posix_acl_access`, y `system.posix_acl_default` en el padre) y etiqueta SELinux. Leer sin seguir symlinks y comprobar que la identidad del descriptor leído (`fstat`) coincide con la consultada.
 
+**Decisión del usuario (2026-11-22):** se mantiene `MAX_FILE_SIZE` = 8 MiB, dentro del rango aprobado, pese a que la revisión de seguridad recomendó 1–2 MiB (pico estimado de 1,3–2,6 GB por documento con la amplificación actual del parser). Riesgo aceptado; revisar cuando se reduzca la amplificación del parser.
+
 <a id="env-t028"></a>
 #### ENV-T028 — Implementar replace_if_unchanged con verificación posterior
 
@@ -927,6 +931,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 **Heredado del spike ENV-T054 (2026-11-22):** dentro del sandbox Flatpak el pre-vuelo funciona igual (modo, uid/gid, `nlink`, symlink dentro de carpetas, ACL), pero los grupos suplementarios aparecen como gid 65534: debe tratarse como no conservable, porque GIO no puede hacer `fchown` y cae al truncado en el sitio (medido). La etiqueta SELinux (siempre `fusefs_t`) y el padre de un archivo suelto no son observables: limitación documentada del modo Flatpak (D-19, condición 7).
 
 **Heredado del QA y la revisión de seguridad de ENV-T026 (2026-11-22):** `replace_if_unchanged` repite por sí mismo `lstat`, pre-vuelo y comparación de versión justo antes de reemplazar; `capabilities()` es solo orientativo. Precedencia de errores fijada en el puerto y en el fake: ausente → `Conflict`; symlink / no regular; solo lectura; fallos de pre-vuelo (condicional, atómico incl. `nlink > 1`, permisos incl. campos desconocidos y gid 65534); versión distinta → `Conflict`; error de escritura; fallo de verificación posterior (`PostWriteVerificationFailed`, bytes ya escritos). La precondición compara la `DiskVersion` completa (hash, etag, tamaño, mtime e identidad), así que un chmod o touch externo es conflicto. Falla cerrado ante cualquier dato desconocido salvo las limitaciones aceptadas de D-19.7. La matriz de ENV-T067 debe comprobar que el inodo cambia tras guardar.
+
+**Heredado de la revisión de seguridad de ENV-T027 (2026-11-22):** (1) los componentes padre de la ruta se siguen; el pre-vuelo de directorio seguro debe cubrir los ancestros o trabajar anclado a descriptores (`openat`/`renameat`), y recalcular desde la ruta si aplica D-19.7 en vez de confiar en `parent == None`. (2) Avisar cuando el `uid` del archivo no es el del usuario. (3) Validar dentro de Flatpak la reapertura por `/proc/self/fd` sobre el FUSE del portal.
 
 <a id="env-t029"></a>
 #### ENV-T029 — Implementar DocumentSession y la máquina de estados del documento
@@ -1380,6 +1386,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Deshacer hasta el estado guardado vuelve a Sin cambios; deshacer tras guardar marca Modificado.
 
 **Pruebas:** Prueba manual de teclado con foco en campo y fuera de él.
+
+**Heredado del QA de ENV-T019 (2026-11-22):** cada `apply`/`undo`/`redo` clona el documento y `check_invariants` recorre todos los nodos, incluidos los nodos eliminados que el historial conserva para reutilizar IDs. Ciclos repetidos de insertar y deshacer crecen de forma cuadrática (medido: 500 ciclos ≈ 0,3 s; 5000 ≈ 29 s). Las pilas no tienen límite de profundidad. Medir una línea base antes de integrar la UI y, si hace falta, limitar la profundidad o compactar.
 
 <a id="env-t047"></a>
 #### ENV-T047 — Implementar la búsqueda de variables por clave
