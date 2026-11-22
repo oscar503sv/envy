@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de decisiones
 
-> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11** y **D-32** (aprobadas por el usuario). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
+> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-23**, **D-24** y **D-32** (aprobadas por el usuario; D-23 y D-24 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
 > **Regla:** este documento no modifica [`docs/PRD.md`](../PRD.md) ni [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md). Los cambios que esos documentos necesiten se registran como propuestas en la §3 para que el usuario los apruebe y los aplique.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [RISKS](RISKS.md) · [MILESTONES](MILESTONES.md)
 
@@ -268,12 +268,14 @@ Resultados:
 #### D-23 — Plataforma de CI
 - **Supuesto:** GitHub Actions (coherente con el app ID provisional `io.github.*`). Confirmar.
 - **Fecha límite:** S02 (ENV-T003), 2026-11-30.
+- **RESUELTA (2026-11-22):** GitHub Actions. Implementada en ENV-T003 (`.github/workflows/ci.yml` + `deny.toml` con cargo-deny).
 
 <a id="d-24"></a>
 #### D-24 — Adoptar `proptest` como dev-dependency
 - **Contexto:** TD §3 la marca como opcional. El parser es la pieza P0 más crítica.
 - **Recomendación:** adoptarla (solo en tests).
 - **Fecha límite:** S02 (ENV-T013), 2026-11-30.
+- **RESUELTA (2026-11-22):** se adopta `proptest` como dev-dependency (solo tests); se añade en ENV-T013. El usuario aprobó también añadir `gio` en la capa de infraestructura para el spike ENV-T025.
 
 <a id="d-25"></a>
 #### D-25 — Implementación del hash de versión

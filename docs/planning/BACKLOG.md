@@ -861,6 +861,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Tests de integración con tempfile para cada caso (sin display).
 
+**Heredado de la revisión de seguridad de ENV-T010 (2026-11-22):** el parser usa ~165× el tamaño del archivo en memoria (medido: 20 MiB de `\n` → 3,4 GB RSS). Aplicar un límite de tamaño antes de leer (`metadata` + lectura con `take(limit + 1)`, propuesta 8–16 MiB; por encima, rechazar o abrir en modo protegido con mensaje claro) y parsear fuera del hilo principal. Opcional en el núcleo: `split_lines` como iterador, `Vec::with_capacity` y clave como rango.
+
 <a id="env-t028"></a>
 #### ENV-T028 — Implementar replace_if_unchanged con verificación posterior
 
