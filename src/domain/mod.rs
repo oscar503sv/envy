@@ -5,6 +5,7 @@
 pub mod codec;
 pub mod compare;
 pub mod document;
+pub mod edit;
 pub mod environment;
 pub mod error;
 pub mod parser;

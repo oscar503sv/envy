@@ -666,6 +666,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Tests unitarios de secuencias apply/undo/redo y de lote fallido.
 
+**Heredado del QA de ENV-T016 (2026-11-22):** (1) deshacer/rehacer debe restaurar los bytes del comando **y** el `NodeKind` (re-parseando `before`/`after`), no solo el reemplazo; (2) `NodeId` no tiene afinidad con el documento, así que el historial debe ir ligado a su documento; (3) el cálculo de dirty no puede basarse solo en `replacement().is_some()`: tras una conversión a `Double`, o al restaurar un valor no canónico como `\q`, el nodo conserva un reemplazo aunque el valor mostrado coincida con el original; conviene comparar con los bytes de origen.
+
 <a id="env-t020"></a>
 #### ENV-T020 — Implementar el diagnóstico de claves duplicadas
 

@@ -30,6 +30,7 @@
 
 use envy::domain::codec::{EncodeContext, decode, encode, encode_in_node};
 use envy::domain::document::{EnvDocument, NodeKind, NodeOrigin};
+use envy::domain::edit::{ConversionPolicy, EditError, SetValueOutcome, set_value};
 use envy::domain::error::DomainError;
 use envy::domain::parser::parse;
 use envy::domain::syntax::{LineTerminator, QuoteStyle};
@@ -365,6 +366,60 @@ proptest! {
                 "template {template}: value differs ({} bytes)",
                 v.len()
             );
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(config())]
+
+    #[test]
+    fn set_value_applies_only_inside_the_node(
+        v in codec_value(),
+        template in 0..NODE_TEMPLATES.len(),
+        should_convert in any::<bool>(),
+    ) {
+        const BEFORE: &str = "# lead\r\nX=1\n";
+        const AFTER: &str = "\nY='2'\r\n# tail";
+        let node = NODE_TEMPLATES[template];
+        // Templates without a terminator are only valid as the last node.
+        let (head, tail) = if node.ends_with(['\n', '\r']) {
+            (BEFORE, AFTER)
+        } else {
+            (BEFORE, "")
+        };
+        let source = format!("{head}{node}{tail}");
+        let mut doc = parse(source.clone().into_bytes()).unwrap();
+        // `# lead` and `X=1` come first, so the template is node 2.
+        let index = 2;
+        let id = doc.nodes()[index].id();
+        let policy = if should_convert { ConversionPolicy::ConvertToDouble } else { ConversionPolicy::Reject };
+        let result = set_value(&mut doc, id, &v, policy);
+        if v.contains('\0') {
+            prop_assert!(result == Err(EditError::Unrepresentable), "NUL must be unrepresentable");
+        }
+        if should_convert && !v.contains('\0') {
+            prop_assert!(result.is_ok(), "template {template}: conversion must succeed");
+        }
+        prop_assert!(doc.check_invariants().is_ok(), "template {template}: invariants");
+        let out = doc.serialize();
+        match result {
+            Ok(SetValueOutcome::Applied(_)) => {
+                let reparsed = parse(out.clone()).unwrap();
+                prop_assert!(reparsed.nodes().len() == doc.nodes().len(), "node count");
+                prop_assert!(out.starts_with(head.as_bytes()), "bytes before the node changed");
+                prop_assert!(out.ends_with(tail.as_bytes()), "bytes after the node changed");
+                let NodeKind::Assignment(syntax) = reparsed.nodes()[index].kind() else {
+                    return Err(TestCaseError::fail("edited node is not an assignment"));
+                };
+                let bytes = reparsed.current_bytes(&reparsed.nodes()[index]).unwrap();
+                let text = std::str::from_utf8(bytes).unwrap();
+                let raw = text.get(syntax.value_range.clone()).unwrap();
+                prop_assert!(decode(syntax.quote, raw) == v, "template {template}: value differs");
+            }
+            Ok(SetValueOutcome::Unchanged) | Err(_) => {
+                prop_assert!(out == source.as_bytes(), "document changed without an edit");
+            }
         }
     }
 }

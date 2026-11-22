@@ -89,9 +89,13 @@ impl EnvNode {
         matches!(self.origin, NodeOrigin::Synthetic(_))
     }
 
-    #[allow(dead_code, reason = "reserved for structured editing")]
     pub(crate) fn set_replacement(&mut self, bytes: Option<Vec<u8>>) {
         self.replacement = bytes.map(Redacted::new);
+    }
+
+    /// Replaces the syntax metadata after an edit changed the node's bytes.
+    pub(crate) fn set_kind(&mut self, kind: NodeKind) {
+        self.kind = kind;
     }
 
     #[allow(dead_code, reason = "reserved for structured editing")]
@@ -154,7 +158,6 @@ impl EnvDocument {
         self.nodes.iter().find(|node| node.id == id)
     }
 
-    #[allow(dead_code, reason = "reserved for structured editing")]
     pub(crate) fn node_mut(&mut self, id: NodeId) -> Option<&mut EnvNode> {
         self.nodes.iter_mut().find(|node| node.id == id)
     }
