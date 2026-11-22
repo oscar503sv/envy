@@ -2,6 +2,4 @@
 
 mod ui;
 
-fn main() {
-    let _ci_probe = 0 as i32;
-}
+fn main() {}
