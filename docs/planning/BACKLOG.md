@@ -246,6 +246,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Ejecución real del pipeline en una rama de prueba.
 
+**Heredado de la revisión de seguridad de ENV-T004 (2026-11-21):** añadir `cargo audit` o `cargo deny` y compilar con `--locked`.
+
 **Riesgos / seguridad:** Hosting de CI no decidido (D-23); se asume GitHub Actions de forma provisional.
 
 <a id="env-t004"></a>
@@ -378,6 +380,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Debug de documentos y nodos no imprime valores.
 
 **Pruebas:** Tests unitarios de invariantes y de Debug redactado.
+
+**Heredado de la revisión de seguridad de ENV-T004 (2026-11-21):** cada tipo con valores (nodo, documento) lleva un test que mete `ENVY_TEST_SENTINEL_9F2C` en clave y valor y comprueba `{:?}` y `{:#?}`. Valorar `clippy::indexing_slicing` en el parser.
 
 <a id="env-t009"></a>
 #### ENV-T009 — Implementar segmentación de líneas, BOM y compuerta UTF-8
@@ -1010,6 +1014,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Todas las cadenas visibles pasan por el helper de i18n.
 
 **Pruebas:** Prueba manual de arranque; test GTK de humo si hay display.
+
+**Heredado de la revisión de seguridad de ENV-T004 (2026-11-21):** el panic hook descarta el payload del panic y registra solo la ubicación (los panics de std pueden citar contenido); prohibir `assert_eq!`/`debug_assert_eq!` en código de producción (`disallowed-macros`).
 
 <a id="env-t034"></a>
 #### ENV-T034 — Implementar la CLI y el manejo de apertura de archivos
@@ -1915,6 +1921,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Lista de llamadas a tracing revisadas adjunta como evidencia.
 
 **Pruebas:** La propia suite; repetida con UI en T075.
+
+**Heredado de la revisión de seguridad de ENV-T004 (2026-11-21):** añadir un chequeo automático (lint `disallowed-macros`/`disallowed-methods` o grep en CI) contra `?value`/`%value` en `tracing`; verificar que las rutas absolutas no llegan a analítica, preferencias exportables ni informes de fallo.
 
 <a id="env-t071"></a>
 #### ENV-T071 — Redactar el guion de pruebas manuales de UI y sistema

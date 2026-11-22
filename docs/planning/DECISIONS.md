@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de decisiones
 
-> **Estado (plan v2, 2026-11-20):** resueltas **D-01**, **D-02**, **D-03**, **D-08**, **D-11** y **D-32** (aprobadas por el usuario). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
+> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11** y **D-32** (aprobadas por el usuario). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
 > **Regla:** este documento no modifica [`docs/PRD.md`](../PRD.md) ni [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md). Los cambios que esos documentos necesiten se registran como propuestas en la §3 para que el usuario los apruebe y los aplique.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [RISKS](RISKS.md) · [MILESTONES](MILESTONES.md)
 
@@ -34,10 +34,11 @@ Cada decisión indica: contexto, opciones, recomendación, impacto si se retrasa
 - **Fecha límite:** antes de crear tareas en cualquier herramienta de seguimiento (S01).
 
 <a id="d-05"></a>
-#### D-05 — Versión mínima de libadwaita (incoherencia interna del TD)
+#### D-05 — Versión mínima de libadwaita (incoherencia interna del TD) — **RESUELTA**
 - **Contexto:** TD §3 y §10.2 fijan **1.4** como mínimo, pero el mismo TD sugiere `AdwAlertDialog` y `AdwPreferencesDialog`, que se introdujeron en **libadwaita 1.5**. El TD ya prevé "subirla explícitamente si algún otro widget lo requiere".
 - **Opciones:** (a) mínimo 1.5 o el que traiga el runtime GNOME elegido (D-06); (b) mantener 1.4 y usar `AdwMessageDialog` (obsoleto desde 1.6).
 - **Recomendación:** (a); se confirma con ENV-T001. Para Flatpak manda el runtime; para instalación nativa, la distribución de prueba oficial.
+- **Resolución (2026-11-21):** el usuario aprueba la propuesta de ENV-T001: API mínima **libadwaita 1.5**, fijada con la feature `v1_5` de `libadwaita-rs`. Es el primer nivel que incluye `AdwAlertDialog`/`AdwPreferencesDialog`; `AdwNavigationSplitView`, `AdwToolbarView` y `AdwBreakpoint` son de 1.4. Compilar contra 1.5 y no contra la versión del runtime evita depender por accidente de API nueva y mantiene la app ejecutable en distribuciones con libadwaita ≥ 1.5. Evidencia: el prototipo con `features = ["v1_5"]` compila y muestra los cuatro widgets en libadwaita 1.9.4 (nativo) y 1.10.0 (Flatpak GNOME 51); ver [evidencia ENV-T001](#ev-t001).
 - **Fecha límite:** S07 (ENV-T033), 2027-01-04. Propuesta de cambio al TD en §3.
 
 <a id="d-10"></a>
@@ -108,10 +109,34 @@ Cada decisión indica: contexto, opciones, recomendación, impacto si se retrasa
 ### 2.2 Decisiones pendientes declaradas en PRD §13 / TD §16
 
 <a id="d-06"></a>
-#### D-06 — Runtime GNOME/SDK y distribución de pruebas oficial
+#### D-06 — Runtime GNOME/SDK y distribución de pruebas oficial — **RESUELTA**
 - **Contexto:** PRD §13, §9. Determina libadwaita disponible (D-05) y el entorno de regresión (ENV-T075).
 - **Recomendación:** runtime GNOME estable vigente en Flathub en el momento de ENV-T001 y una distribución de referencia (p. ej. Fedora Workstation actual) para pruebas nativas. Se propone con evidencia en ENV-T001.
+- **Resolución (2026-11-21):** el usuario aprueba la propuesta de ENV-T001: runtime **`org.gnome.Platform//51`** (gtk 4.24.1, libadwaita 1.10.0) con `org.freedesktop.Sdk.Extension.rust-stable//26.08`, y **Fedora 44 Workstation** (gtk 4.22.5, libadwaita 1.9.4) como distribución de referencia nativa. Se descarta GNOME 50 como objetivo porque la v0.1.0 (estimada 2027-03-05) coincide con la publicación prevista de GNOME 52, tras la cual GNOME 50 dejaría de recibir soporte; esa fecha es una estimación, no un dato verificado. Revisar en ENV-T077 si conviene subir a GNOME 52.
 - **Fecha límite:** S07 (ENV-T033), 2027-01-04; obligatoria en S12 (ENV-T077), 2027-02-08.
+
+<a id="ev-t001"></a>
+##### Evidencia ENV-T001 (2026-11-21)
+
+Prototipo desechable fuera del repositorio (`AdwApplicationWindow` + `AdwToolbarView` + `AdwNavigationSplitView` + `AdwBreakpoint` + `AdwAlertDialog`), no integrado en `main`.
+
+| Componente | Valor | Fuente |
+|---|---|---|
+| Rust (host) | 1.95.0, edición 2024 | `rustc --version` en Fedora 44 |
+| Rust (Flatpak) | 1.98.0 (rust-stable 26.08) | `rustc --version` dentro del build de `flatpak-builder` |
+| `gtk4` (crate) | 0.11.5, `rust-version = 1.92` | `cargo info gtk4` (crates.io) |
+| `libadwaita` (crate) | 0.9.2, features `v1_1`…`v1_10` | `cargo info libadwaita` (crates.io) |
+| `glib`/`gio` (crates) | 0.22.11, `rust-version = 1.92` | `cargo info glib`, `cargo info gio` |
+| `glib-build-tools` | 0.22.8 | `cargo search glib-build-tools` |
+| GTK / libadwaita nativos | 4.22.5 / 1.9.4 | `pkg-config --modversion gtk4 libadwaita-1` |
+| GNOME Sdk 50 | gtk 4.22.5, libadwaita 1.9.4, GLib 2.88.4 | `flatpak run --command=pkg-config org.gnome.Sdk//50 …` |
+| GNOME Sdk 51 | gtk 4.24.1, libadwaita 1.10.0, GLib 2.90.1 | `flatpak run --command=pkg-config org.gnome.Sdk//51 …` |
+
+Resultados:
+
+- **Nativo:** `cargo build` correcto; `ENVY_SPIKE_AUTOQUIT=1 ./target/debug/envy-spike` imprime `runtime gtk 4.22.5 | libadwaita 1.9.4` y `window mapped=true dialog type=AdwAlertDialog`, con salida 0.
+- **Flatpak (GNOME 51):** `flatpak-builder` compila en release con rustc 1.98.0; ejecutado en el sandbox imprime `runtime gtk 4.24.1 | libadwaita 1.10.0` y `window mapped=true dialog type=AdwAlertDialog`.
+- **Observaciones:** (1) el build del spike usó red (`--share=network`); Flathub exige fuentes Cargo offline, que ENV-T077 resolverá con `flatpak-cargo-generator`. (2) Bajo `flatpak-builder --run` GTK avisa de que no encuentra el bus de accesibilidad; es propio de ese modo de ejecución y debe comprobarse con `flatpak run` en ENV-T054/ENV-T073. (3) No se probó compilar con Rust 1.92 (requeriría instalar otro toolchain).
 
 <a id="d-07"></a>
 #### D-07 — App ID, propietario e identidad del proyecto
@@ -144,6 +169,26 @@ Cada decisión indica: contexto, opciones, recomendación, impacto si se retrasa
   - Representación del BOM en el modelo de nodos.
   - Salto de línea de contenido insertado o pegado (estilo dominante) y regla de newline final al añadir/eliminar la última línea.
 - **Fecha límite:** S02 (ENV-T010), **2026-11-30**. ENV-T006 se entrega en S01 y ENV-T010 es la tercera tarea de S02, lo que deja 1–2 días de margen. Si no se aprueba a tiempo, se implementa la propuesta y se asume el riesgo de retrabajo (R-08).
+
+- **Preguntas derivadas de ENV-T006 — RESUELTAS (2026-11-21):** el usuario aprueba los 16 valores por defecto tal como están. `docs/SYNTAX.md` §12 desarrolla cada una con opciones; el documento ya implementa el valor por defecto indicado.
+  | # | Pregunta | Defecto propuesto |
+  |---|---|---|
+  | Q-01 | Nombre del tipo de nodo vacío: `Blank` (TD §5.1) o `Empty` (regla 10) | `Blank`; es el mismo tipo, solo cambia el texto de la regla 10 |
+  | Q-02 | Qué cuenta como blanco | Solo espacio y tabulador; una línea con otros blancos Unicode es `Raw` |
+  | Q-03 | `#` pegado a la comilla de cierre (`K="a"#c`) | `Raw`; se exige al menos un espacio o tabulador antes del `#` |
+  | Q-04 | `CR` solitario dentro de un valor multilínea entre comillas | Cuenta como terminador (necesario para archivos solo-CR) |
+  | Q-05 | Cómo se muestran los terminadores internos de un valor | Siempre como LF; al editar se escriben con el estilo dominante |
+  | Q-06 | Cómo se escribe un LF en `Double` | `\n` en nodos de una línea, terminador real en nodos multilínea; un `\X` desconocido se reescribe `\\X` al editar |
+  | Q-07 | Disparadores extra de `NeedsConversion` en `Unquoted` | Guarda de ida y vuelta: si la línea codificada no se relee igual, convertir a `Double` |
+  | Q-08 | Comilla huérfana cerrada por accidente más adelante | Reglas literales sin heurística, con aviso de multilínea en la UI |
+  | Q-09 | Qué terminadores cuentan para el estilo dominante | Todos los del archivo |
+  | Q-10 | Insertar al final si la última región es `Raw` por comillas sin cerrar | Bloquearlo; solo se permite insertar antes de esa región |
+  | Q-11 | En qué estilos se avisa de `${…}` | En los tres |
+  | Q-12 | A dónde van los espacios tras `=` en un valor vacío | Al prefijo, salvo que haya comentario final (entonces al sufijo) |
+  | Q-13 | Granularidad de una región `Raw` multilínea | Un solo nodo |
+  | Q-14 | BOM fuera del offset 0 / archivo con solo BOM | Contenido ordinario / cuenta como vacío |
+  | Q-15 | Líneas con U+0000 | `Raw` |
+  | Q-16 | Barra invertida final en `Unquoted` | Literal, sin continuación de línea |
 
 <a id="d-12"></a>
 #### D-12 — Política de guardado cuando faltan garantías
@@ -184,10 +229,22 @@ Cada decisión indica: contexto, opciones, recomendación, impacto si se retrasa
 - **Propuesta:** usar la semántica del PRD §5 (P0 seguridad/corrección, P1 experiencia esencial, P2 Workspace; todas en el MVP). Las tareas habilitadoras heredan la prioridad más alta de lo que desbloquean.
 
 <a id="d-09"></a>
-#### D-09 — Sistema de build: Cargo + build.rs o Meson
+#### D-09 — Sistema de build: Cargo + build.rs o Meson — **RESUELTA**
 - **Contexto:** TD §4 muestra una estructura solo con Cargo; las apps GNOME suelen usar Meson para instalar desktop/metainfo/gschema/iconos y traducciones.
 - **Opciones:** (a) Cargo + build.rs (glib-build-tools) + instalación desde el manifiesto Flatpak; (b) Meson envolviendo Cargo.
 - **Recomendación:** se propone en ENV-T001 con evidencia. (a) es más simple al principio; (b) simplifica i18n e instalación nativa.
+- **Resolución (2026-11-21):** el usuario aprueba la propuesta de ENV-T001: **(a) Cargo + `build.rs`**, con revisión obligatoria en ENV-T078/ENV-T080.
+
+  | Criterio | (a) Cargo + build.rs | (b) Meson envolviendo Cargo |
+  |---|---|---|
+  | Arranque (S01–S06, núcleo sin UI) | `cargo build/test/clippy` directos; nada que mantener | Capa extra sin beneficio mientras no hay datos que instalar |
+  | GResource / `.ui` | `glib-build-tools` en `build.rs` | `gnome.compile_resources` |
+  | desktop, metainfo, gschema, iconos | Comandos `install` en el manifiesto Flatpak (y validaciones en CI) | Reglas de instalación nativas + tests `desktop-file-validate`/`appstreamcli` integrados |
+  | i18n (gettext) | Catálogos de la UI vía crate `gettext-rs`; traducir desktop/metainfo exige `msgfmt` en manifiesto/CI | Módulo `i18n` estándar de GNOME: lo cubre todo |
+  | Instalación nativa (`make install`-like) | No soportada (fuera del objetivo: la distribución es Flatpak) | Soportada |
+  | Herramientas (rust-analyzer, CI de Rust) | Funcionan sin configuración | Funcionan, pero el build oficial pasa por `meson`/`ninja` |
+
+  Motivo: la distribución objetivo es Flatpak (PRD §9), los primeros seis sprints son núcleo puro sin datos instalables, y el spike demuestra que el manifiesto puede compilar con `cargo` directamente. Criterio de reapertura: si ENV-T080 necesita traducir desktop/metainfo, o si se decide soportar instalación nativa, migrar a (b) antes de ENV-T078; coste estimado bajo porque el código Rust no cambia.
 - **Fecha límite:** S07 (ENV-T033), 2027-01-04. Propuesta producida por ENV-T001 en S01.
 
 <a id="d-13"></a>
@@ -228,6 +285,7 @@ Cada decisión indica: contexto, opciones, recomendación, impacto si se retrasa
 #### D-32 — Edición de Rust y MSRV — **RESUELTA**
 - **Resolución (2026-11-20):** aprobada la edición 2024 sobre Rust estable. ENV-T001 fija el MSRV concreto y verifica que la extensión rust-stable del SDK Flatpak la soporta; si no la soporta, se vuelve a consultar.
 - **Contexto:** TD §3: edición 2024 "si el toolchain objetivo la soporta". Se confirma en ENV-T001 junto con la extensión rust-stable del SDK Flatpak.
+- **Verificación ENV-T001 (2026-11-21):** la edición 2024 compila en el host (rustc 1.95.0) y en el SDK Flatpak (rust-stable 26.08, rustc 1.98.0). **MSRV propuesto: 1.95** (`rust-version = "1.95"`), la versión más baja probada; el suelo impuesto por `gtk4`/`glib` 0.22 es 1.92, pero no se ha compilado con ella. **MSRV 1.95 aprobado por el usuario (2026-11-21).**
 - **Fecha límite:** S01.
 
 <a id="d-35"></a>
@@ -263,6 +321,8 @@ Cada decisión indica: contexto, opciones, recomendación, impacto si se retrasa
 | C-10 | TD | §8.2 | Documentar el resultado del spike de guardado y la garantía residual real | D-12 |
 | C-11 | TD | §10.2 | Retirar o aplazar `AdwPreferencesDialog` si no hay preferencias en v0.1 | D-28 |
 | C-12 | TD | §7.2 | Precisar la semántica de la sesión tras "Guardar como…" | D-27 |
+| C-13 | TD | §5.1, §5.2 | Añadir `bom: bool` a `EnvDocument` y hacer que los spans de los nodos empiecen tras el BOM (lo exige D-11 regla 7; detectado en `docs/SYNTAX.md` §12.1) | D-11 |
+| C-14 | TD | §5.1 | Definir el terminador de línea como parte explícita del nodo y la descomposición prefijo/valor/sufijo/terminador de `docs/SYNTAX.md` §4 (a concretar en ENV-T008) | D-11 |
 
 <a id="4-propuestas-para-versiones-futuras-no-v010"></a>
 ## 4. Propuestas para versiones futuras (no v0.1.0)
