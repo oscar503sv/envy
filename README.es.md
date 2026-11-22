@@ -72,13 +72,15 @@ Stack:
 - Cargo con `build.rs` como sistema de build
 - Flatpak con el runtime GNOME 51
 
-Compilar y verificar:
+GitHub Actions ejecuta las comprobaciones del núcleo en Linux sin bibliotecas de sistema de GTK. Usa los comandos siguientes para ejecutar las mismas comprobaciones en local. La comprobación de dependencias requiere cargo-deny.
 
 ```sh
 cargo build
-cargo test
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
+cargo test --locked --doc
+cargo deny check
 ```
 
 Las instrucciones para compilar el Flatpak se añadirán junto con el manifiesto.
