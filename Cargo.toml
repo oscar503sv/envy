@@ -1,0 +1,23 @@
+[package]
+name = "envy"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "GPL-3.0-or-later"
+description = "Safe, native GNOME editor for dotenv files"
+publish = false
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+unwrap_used = "deny"
+expect_used = "deny"
+string_slice = "deny"
+indexing_slicing = "deny"
+
+[dependencies]
+thiserror = "2"

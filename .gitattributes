@@ -1,0 +1,2 @@
+# Fixtures and descriptors are byte-exact: no EOL conversion.
+tests/fixtures/** -text

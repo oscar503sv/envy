@@ -62,14 +62,26 @@ Todavía no está disponible. v0.1.0 se distribuirá como Flatpak y se enviará 
 
 ## Compilar desde el código fuente
 
-Todavía no hay código. El stack previsto es:
+Envy está en una fase temprana: el crate compila, pero todavía no hay ventana de aplicación.
 
-- Rust (estable, edición 2024)
-- GTK 4 y libadwaita
+Stack:
+
+- Rust 1.95 o superior, edición 2024 (`rust-toolchain.toml` fija el toolchain para `rustup`)
+- GTK 4 y libadwaita 1.5 o superior (a partir del hito de interfaz)
 - Gio para el acceso, la monitorización y el guardado de archivos
-- Flatpak con el runtime de GNOME
+- Cargo con `build.rs` como sistema de build
+- Flatpak con el runtime GNOME 51
 
-Las versiones mínimas exactas y el sistema de build se deciden durante el primer sprint. Esta sección se completará con instrucciones paso a paso en cuanto el proyecto compile.
+Compilar y verificar:
+
+```sh
+cargo build
+cargo test
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+```
+
+Las instrucciones para compilar el Flatpak se añadirán junto con el manifiesto.
 
 ## Documentación
 
