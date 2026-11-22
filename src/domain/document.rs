@@ -219,6 +219,44 @@ impl EnvDocument {
         }
     }
 
+    /// Terminator style for new content (SYNTAX SYN-06, Q-09).
+    ///
+    /// Counts every terminator in the live nodes' current bytes, including
+    /// those inside values and `Raw` nodes. The highest count wins; a tie goes
+    /// to the style whose last occurrence is latest in the document; no
+    /// terminators means `Lf`.
+    pub fn dominant_terminator(&self) -> LineTerminator {
+        const STYLES: [LineTerminator; 3] =
+            [LineTerminator::Lf, LineTerminator::CrLf, LineTerminator::Cr];
+        // (count, position of the last occurrence) per style.
+        let mut stats = [(0_usize, 0_usize); 3];
+        let mut position = 0_usize;
+        for node in self.nodes.iter().filter(|node| !node.removed) {
+            let Some(bytes) = self.current_bytes(node) else {
+                continue;
+            };
+            let mut iter = bytes.iter().peekable();
+            while let Some(byte) = iter.next() {
+                let slot = match byte {
+                    b'\n' => 0,
+                    b'\r' if iter.next_if_eq(&&b'\n').is_some() => 1,
+                    b'\r' => 2,
+                    _ => continue,
+                };
+                position += 1;
+                if let Some(entry) = stats.get_mut(slot) {
+                    *entry = (entry.0 + 1, position);
+                }
+            }
+        }
+        STYLES
+            .into_iter()
+            .zip(stats)
+            .filter(|(_, (count, _))| *count > 0)
+            .max_by_key(|(_, stat)| *stat)
+            .map_or(LineTerminator::Lf, |(style, _)| style)
+    }
+
     /// Serializes the document back to bytes without normalizing anything.
     ///
     /// The BOM is written first if and only if `has_bom()`; then every live
@@ -774,5 +812,85 @@ mod tests {
             let doc = parse(b"A=1\n".to_vec()).expect("valid");
             assert!(!doc.serialize().starts_with(UTF8_BOM));
         }
+    }
+}
+
+#[cfg(test)]
+mod dominant_terminator_tests {
+    use super::LineTerminator::{self, Cr, CrLf, Lf};
+    use crate::domain::parser::parse;
+
+    fn dominant(source: &[u8]) -> LineTerminator {
+        parse(source.to_vec()).unwrap().dominant_terminator()
+    }
+
+    #[test]
+    fn no_terminators_defaults_to_lf() {
+        assert_eq!(dominant(b""), Lf);
+        assert_eq!(dominant(b"A=1"), Lf);
+        assert_eq!(dominant(b"\xef\xbb\xbfA=1"), Lf);
+    }
+
+    #[test]
+    fn single_style_files() {
+        assert_eq!(dominant(b"A=1\nB=2\n"), Lf);
+        assert_eq!(dominant(b"A=1\r\nB=2\r\n"), CrLf);
+        assert_eq!(dominant(b"A=1\rB=2\r"), Cr);
+    }
+
+    #[test]
+    fn highest_count_wins() {
+        assert_eq!(dominant(b"A=1\r\nB=2\r\nC=3\n"), CrLf);
+        assert_eq!(dominant(b"A=1\nB=2\nC=3\r\n"), Lf);
+        assert_eq!(dominant(b"A=1\rB=2\rC=3\rD=4\r\nE=5\n"), Cr);
+    }
+
+    #[test]
+    fn tie_goes_to_the_last_terminator() {
+        assert_eq!(dominant(b"A=1\r\nB=2\n"), Lf);
+        assert_eq!(dominant(b"A=1\nB=2\r\n"), CrLf);
+        assert_eq!(dominant(b"A=1\nB=2\rC=3\r\n"), CrLf);
+        assert_eq!(dominant(b"A=1\r\nB=2\nC=3\r\nD=4\n"), Lf);
+    }
+
+    #[test]
+    fn tie_of_the_top_two_ignores_a_smaller_later_style() {
+        assert_eq!(dominant(b"A=1\nB=2\nC=3\r\nD=4\r\nE=5\r"), CrLf);
+    }
+
+    #[test]
+    fn counts_terminators_inside_values_and_raw_nodes() {
+        assert_eq!(dominant(b"A=\"x\r\ny\r\nz\r\nw\"\nB=1\n"), CrLf);
+        assert_eq!(dominant(b"A='x\ry\rz\rw'\nB=1\n"), Cr);
+        assert_eq!(dominant(b"A=1\n\"bad\r\nline\r\n\nB=1\n"), Lf);
+        assert_eq!(dominant(b"K=\"a\"x\r\nM=1\r\nN=2\n"), CrLf);
+    }
+
+    #[test]
+    fn mixed_and_cr_only_documents() {
+        assert_eq!(dominant(b"A=1\r\nB=2\nC=3\rD=4\n"), Lf);
+        assert_eq!(dominant(b"A=1\rB=\"x\ry\"\rC=3\r"), Cr);
+    }
+
+    #[test]
+    fn removed_nodes_are_not_counted() {
+        let mut doc = parse(b"A=1\r\nB=2\r\nC=3\n".to_vec()).unwrap();
+        assert_eq!(doc.dominant_terminator(), CrLf);
+        for index in 0..2 {
+            let id = doc.nodes()[index].id();
+            doc.node_mut(id).unwrap().set_removed(true);
+        }
+        assert_eq!(doc.dominant_terminator(), Lf);
+    }
+
+    #[test]
+    fn replacement_bytes_are_counted_instead_of_the_source() {
+        let mut doc = parse(b"A=1\nB=2\nC=3\r\n".to_vec()).unwrap();
+        assert_eq!(doc.dominant_terminator(), Lf);
+        let id = doc.nodes()[0].id();
+        doc.node_mut(id)
+            .unwrap()
+            .set_replacement(Some(b"A=\"x\r\ny\"\r\n".to_vec()));
+        assert_eq!(doc.dominant_terminator(), CrLf);
     }
 }

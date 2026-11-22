@@ -2,6 +2,7 @@
 //!
 //! Performs no I/O and must not depend on GTK, GDK, libadwaita, GLib or Gio.
 
+pub mod codec;
 pub mod document;
 pub mod environment;
 pub mod error;

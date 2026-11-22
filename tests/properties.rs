@@ -28,9 +28,11 @@
     reason = "integration tests may panic with context on broken expectations"
 )]
 
-use envy::domain::document::{EnvDocument, NodeOrigin};
+use envy::domain::codec::{EncodeContext, decode, encode, encode_in_node};
+use envy::domain::document::{EnvDocument, NodeKind, NodeOrigin};
 use envy::domain::error::DomainError;
 use envy::domain::parser::parse;
+use envy::domain::syntax::{LineTerminator, QuoteStyle};
 use proptest::collection::vec;
 use proptest::prelude::*;
 use proptest::test_runner::FileFailurePersistence;
@@ -273,6 +275,96 @@ proptest! {
         prop_assert!(std::str::from_utf8(&input[if input.starts_with(BOM) { 3 } else { 0 }..]).is_ok(), "generator emitted invalid UTF-8");
         if let Err(message) = check_properties(&input) {
             prop_assert!(false, "{}", message);
+        }
+    }
+}
+
+const STYLES: [QuoteStyle; 3] = [QuoteStyle::Unquoted, QuoteStyle::Single, QuoteStyle::Double];
+const TERMINATORS: [LineTerminator; 3] =
+    [LineTerminator::Lf, LineTerminator::CrLf, LineTerminator::Cr];
+
+/// Node templates for `encode_in_node`: unquoted with and without a trailing
+/// comment, single, double, multiline double and export.
+const NODE_TEMPLATES: &[&str] = &[
+    "K=a\n",
+    "K=a # c\n",
+    "K= # c\n",
+    "K='a'\n",
+    "K=\"a\"\n",
+    "K=\"a\r\nb\" # c\r\n",
+    "K='a\nb'",
+    "export K=\"a\"\n",
+    "export K = a\t# c\r\n",
+];
+
+fn codec_value() -> impl Strategy<Value = String> {
+    prop_oneof![
+        3 => fragments(),
+        // Arbitrary Unicode but at most 16 chars, so it cannot hold the
+        // 23-char sentinel.
+        1 => "[\\s\\S]{0,16}",
+        1 => "[a-z ]{0,6}",
+    ]
+}
+
+proptest! {
+    #![proptest_config(config())]
+
+    #[test]
+    fn encode_then_decode_returns_the_value(v in codec_value()) {
+        for style in STYLES {
+            for dominant in TERMINATORS {
+                for is_multiline in [false, true] {
+                    let ctx = EncodeContext { dominant, is_multiline };
+                    match encode(style, &v, ctx) {
+                        Ok(encoded) => prop_assert!(
+                            decode(style, &encoded) == v,
+                            "decode(encode(v)) differs ({style:?}, value of {} bytes)",
+                            v.len()
+                        ),
+                        Err(_) => prop_assert!(
+                            style != QuoteStyle::Double,
+                            "double must never need conversion"
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn encode_in_node_ok_reparses_to_the_value(
+        v in codec_value(),
+        template in 0..NODE_TEMPLATES.len(),
+        dominant in 0..TERMINATORS.len(),
+    ) {
+        let node = NODE_TEMPLATES[template];
+        let document = parse(node.as_bytes().to_vec()).unwrap();
+        let NodeKind::Assignment(syntax) = document.nodes()[0].kind() else {
+            return Err(TestCaseError::fail(format!("template {template} is not an assignment")));
+        };
+        let result = encode_in_node(node, syntax, &v, TERMINATORS[dominant]);
+        // Double escapes everything; only NUL (which makes the line Raw) can fail.
+        if syntax.quote == QuoteStyle::Double {
+            prop_assert!(
+                result.is_ok() || v.contains('\0'),
+                "template {template}: double rejected a representable value ({} bytes)",
+                v.len()
+            );
+        }
+        if let Ok(edited) = result {
+            let reparsed = parse(edited.clone().into_bytes()).unwrap();
+            prop_assert!(reparsed.nodes().len() == 1, "template {template}: node count");
+            let NodeKind::Assignment(new_syntax) = reparsed.nodes()[0].kind() else {
+                return Err(TestCaseError::fail(format!("template {template}: not an assignment")));
+            };
+            prop_assert!(new_syntax.quote == syntax.quote, "template {template}: quote style");
+            let raw = edited.get(new_syntax.value_range.clone()).unwrap();
+            prop_assert!(
+                decode(new_syntax.quote, raw) == v,
+                "template {template}: value differs ({} bytes)",
+                v.len()
+            );
         }
     }
 }
