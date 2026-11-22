@@ -8,7 +8,7 @@ description = "Safe, native GNOME editor for dotenv files"
 publish = false
 
 [lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [lints.clippy]
 dbg_macro = "deny"
@@ -23,6 +23,8 @@ indexing_slicing = "deny"
 test-support = []
 
 [dependencies]
+gio = { version = "0.22", features = ["v2_66"] }
+libc = "0.2"
 sha2 = { version = "0.11", default-features = false }
 thiserror = "2"
 

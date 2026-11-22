@@ -12,6 +12,11 @@ allow = [
     "Unicode-3.0", # Required by unicode-ident.
 ]
 
+# Build dependency of system-deps, pulled in by the GLib -sys crates.
+[[licenses.exceptions]]
+crate = "target-lexicon"
+allow = ["Apache-2.0 WITH LLVM-exception"]
+
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"

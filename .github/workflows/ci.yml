@@ -31,6 +31,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Install GLib development files
+        # gio-sys and glib-sys locate GLib with pkg-config at build time.
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends libglib2.0-dev
       - name: Install pinned Rust toolchain
         # rustup >= 1.28 no longer installs the active toolchain on `show`.
         run: rustup toolchain install
