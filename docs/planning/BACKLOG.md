@@ -926,6 +926,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Heredado del spike ENV-T054 (2026-11-22):** dentro del sandbox Flatpak el pre-vuelo funciona igual (modo, uid/gid, `nlink`, symlink dentro de carpetas, ACL), pero los grupos suplementarios aparecen como gid 65534: debe tratarse como no conservable, porque GIO no puede hacer `fchown` y cae al truncado en el sitio (medido). La etiqueta SELinux (siempre `fusefs_t`) y el padre de un archivo suelto no son observables: limitación documentada del modo Flatpak (D-19, condición 7).
 
+**Heredado del QA y la revisión de seguridad de ENV-T026 (2026-11-22):** `replace_if_unchanged` repite por sí mismo `lstat`, pre-vuelo y comparación de versión justo antes de reemplazar; `capabilities()` es solo orientativo. Precedencia de errores fijada en el puerto y en el fake: ausente → `Conflict`; symlink / no regular; solo lectura; fallos de pre-vuelo (condicional, atómico incl. `nlink > 1`, permisos incl. campos desconocidos y gid 65534); versión distinta → `Conflict`; error de escritura; fallo de verificación posterior (`PostWriteVerificationFailed`, bytes ya escritos). La precondición compara la `DiskVersion` completa (hash, etag, tamaño, mtime e identidad), así que un chmod o touch externo es conflicto. Falla cerrado ante cualquier dato desconocido salvo las limitaciones aceptadas de D-19.7. La matriz de ENV-T067 debe comprobar que el inodo cambia tras guardar.
+
 <a id="env-t029"></a>
 #### ENV-T029 — Implementar DocumentSession y la máquina de estados del documento
 
@@ -951,6 +953,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Tests unitarios por transición.
 
+**Heredado del QA y la revisión de seguridad de ENV-T026 (2026-11-22):** la sesión conserva `ReadSnapshot.version` tal como lo devolvió `read` (una base reconstruida solo desde los bytes nunca coincide con una que tenga etag o identidad, y daría `Conflict` siempre). `StorageError` es `#[non_exhaustive]`: el mapeo error → estado necesita un brazo comodín. Un `Conflict` cuyo hash no cambió puede clasificarse como cambio solo de metadatos. Tras `PostWriteVerificationFailed` los bytes nuevos **sí** están en disco: avisar al usuario (p. ej. permisos más abiertos) y volver a leer la base; no decir "no se guardó".
+
 <a id="env-t030"></a>
 #### ENV-T030 — Implementar la orquestación de Guardar y Guardar como
 
@@ -975,6 +979,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Un guardado con capacidades insuficientes se bloquea y sugiere Guardar como.
 
 **Pruebas:** Tests con FakeStorage para éxito, conflicto, fallo de E/S y capacidades insuficientes.
+
+**Heredado de ENV-T028 / QA de ENV-T026 (2026-11-22):** el puerto `DocumentStorage` (TD §8.1) solo tiene `read`, `capabilities` y `replace_if_unchanged`, y este último nunca crea archivos. Guardar como no es expresable todavía: decidir al empezar esta tarea si se añade al puerto un método de creación (`create_new`) que comparta el pre-vuelo de ENV-T028 (recomendado, D-12.3 exige el mismo `lstat` y pre-vuelo) o si vive solo en infraestructura.
 
 <a id="env-t031"></a>
 #### ENV-T031 — Implementar el adaptador FileMonitor con coalescencia y verificación por hash
@@ -1002,6 +1008,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 **Pruebas:** Tests de integración con bucle principal GLib (sin display); matriz completa en T069.
 
 **Heredado del spike ENV-T054 (2026-11-22):** en Flatpak no llega ningún evento de `GFileMonitor` por ediciones hechas desde el host sobre archivos abiertos por el document portal (solo las escrituras de la propia app generan eventos). El adaptador debe ofrecer además una comprobación por sondeo (etag + hash de T027) al recuperar el foco de la ventana y con un temporizador mientras haya documentos abiertos, con la misma coalescencia. El sondeo nunca actualiza la línea base de D-12: solo marca «cambiado externamente» (D-19, condición 6). Ver [informe](spikes/ENV-T054-flatpak-portals.md), caso 5 y §4.
+
+**Heredado del QA de ENV-T026 (2026-11-22):** `FakeStorage` mantiene etag y mtime sin cambios tras escribir (como el etag=mtime de Gio, D-12.1), así que un sondeo que confíe en etag/mtime no detecta cambios con el fake: comparar por hash e identidad.
 
 <a id="env-t032"></a>
 #### ENV-T032 — Implementar el resumen de revisión de conflicto sin valores

@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de decisiones
 
-> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-12**, **D-19**, **D-23**, **D-24**, **D-32** y **D-34** (aprobadas por el usuario; D-12, D-19, D-23, D-24 y D-34 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
+> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-12**, **D-19**, **D-23**, **D-24**, **D-25**, **D-32** y **D-34** (aprobadas por el usuario; D-12, D-19, D-23, D-24, D-25 y D-34 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
 > **Regla:** este documento no modifica [`docs/PRD.md`](../PRD.md) ni [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md). Los cambios que esos documentos necesiten se registran como propuestas en la §3 para que el usuario los apruebe y los aplique.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [RISKS](RISKS.md) · [MILESTONES](MILESTONES.md)
 
@@ -304,10 +304,11 @@ Resultados:
 - **RESUELTA (2026-11-22):** se adopta `proptest` como dev-dependency (solo tests); se añade en ENV-T013. El usuario aprobó también añadir `gio` en la capa de infraestructura para el spike ENV-T025.
 
 <a id="d-25"></a>
-#### D-25 — Implementación del hash de versión
+#### D-25 — Implementación del hash de versión — **RESUELTA**
 - **Opciones:** (a) crate `sha2` en el núcleo (mantiene ADR-002 sin GLib en domain); (b) `glib::Checksum` en infraestructura (sin dependencia nueva, pero el hash queda fuera del núcleo puro).
 - **Recomendación:** decidir en ENV-T026 revisando qué hay ya en el árbol de dependencias.
 - **Fecha límite:** S04 (ENV-T026), 2026-12-14.
+- **RESUELTA (2026-11-22):** opción (a). Se añade `sha2 = "0.11"` (MIT OR Apache-2.0, MSRV 1.88) como dependencia del núcleo en ENV-T026, de modo que `FakeStorage` y el dominio calculan el hash sin GLib (ADR-002). El usuario confirmó también `gio` como dependencia de producto en la capa de infraestructura (ENV-T027).
 
 <a id="d-32"></a>
 #### D-32 — Edición de Rust y MSRV — **RESUELTA**
