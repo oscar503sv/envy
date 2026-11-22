@@ -5,5 +5,6 @@
 pub mod document;
 pub mod environment;
 pub mod error;
+pub mod parser;
 pub mod redact;
 pub mod syntax;

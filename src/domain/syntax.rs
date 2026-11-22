@@ -260,13 +260,13 @@ mod tests {
         let mut rebuilt = Vec::new();
         let mut cursor = 0;
         for (index, line) in lines.iter().enumerate() {
-            assert_eq!(line.span.start, cursor, "contiguous: {input:?}");
+            assert_eq!(line.span.start, cursor, "contiguous: len {}", input.len());
             assert!(line.span.start <= line.content_end && line.content_end <= line.span.end);
             cursor = line.span.end;
             rebuilt.extend_from_slice(&input[line.span.clone()]);
             let tail = &input[line.content_end..line.span.end];
             match line.terminator {
-                Some(t) => assert_eq!(tail, t.as_bytes(), "terminator bytes: {input:?}"),
+                Some(t) => assert_eq!(tail, t.as_bytes(), "terminator bytes: len {}", input.len()),
                 None => {
                     assert!(tail.is_empty());
                     assert_eq!(index + 1, lines.len(), "only last may lack terminator");
@@ -276,7 +276,11 @@ mod tests {
                 let ends_with_cr =
                     line.content_end > line.span.start && input[line.content_end - 1] == b'\r';
                 let next_is_lf = input.get(next.span.start) == Some(&b'\n');
-                assert!(!(ends_with_cr && next_is_lf), "CRLF split: {input:?}");
+                assert!(
+                    !(ends_with_cr && next_is_lf),
+                    "CRLF split: len {}",
+                    input.len()
+                );
             }
         }
         assert_eq!(cursor, input.len());
