@@ -219,6 +219,27 @@ impl EnvDocument {
         }
     }
 
+    /// Serializes the document back to bytes without normalizing anything.
+    ///
+    /// The BOM is written first if and only if `has_bom()`; then every live
+    /// node contributes its current bytes in order. Node bytes already include
+    /// their own terminator, so nothing is appended or stripped: BOM, EOL
+    /// style, whitespace and a missing final newline are all preserved.
+    /// Removed nodes are skipped, and a node whose bytes cannot be resolved
+    /// (an invariant violation) contributes nothing.
+    pub fn serialize(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.source().len());
+        if self.bom {
+            out.extend_from_slice(UTF8_BOM);
+        }
+        for node in self.nodes.iter().filter(|node| !node.removed) {
+            if let Some(bytes) = self.current_bytes(node) {
+                out.extend_from_slice(bytes);
+            }
+        }
+        out
+    }
+
     /// Checks the BOM first, then validates nodes in document order and checks
     /// final source coverage.
     pub fn check_invariants(&self) -> Result<(), InvariantViolation> {
@@ -653,6 +674,105 @@ mod tests {
         ] {
             assert_redacted(&error);
             assert!(!error.to_string().contains(SENTINEL));
+        }
+    }
+
+    mod serialize_tests {
+        use super::*;
+        use crate::{domain::parser::parse, test_support::diff::first_difference};
+
+        fn assert_same(expected: &[u8], actual: &[u8], context: &str) {
+            let difference = first_difference(expected, actual);
+            assert!(difference.is_none(), "{context}: {difference:?}");
+        }
+
+        fn round_trip(input: &[u8]) {
+            let doc = parse(input.to_vec()).expect("valid UTF-8");
+            assert_same(input, &doc.serialize(), "round trip");
+        }
+
+        #[test]
+        fn round_trips_representative_inputs() {
+            for input in [
+                b"".as_slice(),
+                b"\xef\xbb\xbf",
+                b"\xef\xbb\xbfA=1\n# c\n",
+                b"A=1\r\nB=2\r\n",
+                b"A=1\rB=2\r",
+                b"A=1\nB=2\r\nC=3\rD=4",
+                b"A=1\nB=2",
+                b"\n\n\r\n",
+                b"A='x\ny'\nB=\"unclosed\n",
+                b"  A = 1  \n",
+                b"A=\0\n",
+                b"\xef\xbb\xbf\0A\n",
+            ] {
+                round_trip(input);
+            }
+        }
+
+        #[test]
+        fn exhaustive_small_inputs_round_trip() {
+            const ALPHABET: [u8; 9] = [b'A', b'=', b'"', b'\'', b'#', b' ', b'\\', b'\n', b'\r'];
+            let base = ALPHABET.len();
+            for len in 0..=5_u32 {
+                for n in 0..base.pow(len) {
+                    let mut rest = n;
+                    let input: Vec<u8> = (0..len)
+                        .map(|_| {
+                            let byte = ALPHABET[rest % base];
+                            rest /= base;
+                            byte
+                        })
+                        .collect();
+                    let doc = parse(input.clone()).expect("ASCII is valid UTF-8");
+                    assert_same(&input, &doc.serialize(), "exhaustive");
+                    let mut with_bom = UTF8_BOM.to_vec();
+                    if n % 97 == 0 {
+                        with_bom.extend_from_slice(&input);
+                        with_bom.push(0);
+                        round_trip(&with_bom);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn replacement_is_serialized_in_place() {
+            let mut doc = parse(b"A=1\r\nB=2\nC=3".to_vec()).expect("valid");
+            let id = doc.nodes()[1].id();
+            doc.node_mut(id)
+                .expect("node exists")
+                .set_replacement(Some(b"B=changed\n".to_vec()));
+            assert_same(b"A=1\r\nB=changed\nC=3", &doc.serialize(), "replacement");
+        }
+
+        #[test]
+        fn removed_node_disappears_without_touching_the_rest() {
+            let mut doc = parse(b"\xef\xbb\xbfA=1\r\nB=2\nC=3\r".to_vec()).expect("valid");
+            let id = doc.nodes()[1].id();
+            doc.node_mut(id).expect("node exists").set_removed(true);
+            assert_same(b"\xef\xbb\xbfA=1\r\nC=3\r", &doc.serialize(), "removed");
+        }
+
+        #[test]
+        fn synthetic_node_appears_at_its_position() {
+            let mut doc = parse(b"A=1\nB=2\n".to_vec()).expect("valid");
+            doc.insert_synthetic_node(
+                1,
+                b"X=9\r\n".to_vec(),
+                NodeKind::Raw,
+                Some(LineTerminator::CrLf),
+            );
+            assert_same(b"A=1\nX=9\r\nB=2\n", &doc.serialize(), "synthetic");
+        }
+
+        #[test]
+        fn bom_is_never_added_or_removed() {
+            let doc = EnvDocument::new(Vec::new());
+            assert!(doc.serialize().is_empty());
+            let doc = parse(b"A=1\n".to_vec()).expect("valid");
+            assert!(!doc.serialize().starts_with(UTF8_BOM));
         }
     }
 }
