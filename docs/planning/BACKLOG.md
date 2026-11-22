@@ -668,6 +668,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Heredado del QA de ENV-T016 (2026-11-22):** (1) deshacer/rehacer debe restaurar los bytes del comando **y** el `NodeKind` (re-parseando `before`/`after`), no solo el reemplazo; (2) `NodeId` no tiene afinidad con el documento, así que el historial debe ir ligado a su documento; (3) el cálculo de dirty no puede basarse solo en `replacement().is_some()`: tras una conversión a `Double`, o al restaurar un valor no canónico como `\q`, el nodo conserva un reemplazo aunque el valor mostrado coincida con el original; conviene comparar con los bytes de origen.
 
+**Heredado del QA de ENV-T017/T018 (2026-11-22):** (1) `TerminatorChange` con `after` vacío significa que un Blank quedó retirado al quitarle el terminador; undo debe restaurarlo (desmarcar `removed` y su contenido). (2) Las posiciones de los comandos incluyen nodos eliminados; usar `node_id` como clave y la posición solo como pista. (3) `check_invariants` permite cambiar el terminador de un nodo Raw si el cuerpo no cambia; al añadir más llamadores, restringirlo a las dos transiciones de SYN-07/SYN-08 (añadir el dominante al último nodo vivo, quitarlo al nuevo último).
+
 <a id="env-t020"></a>
 #### ENV-T020 — Implementar el diagnóstico de claves duplicadas
 

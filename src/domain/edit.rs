@@ -13,10 +13,10 @@ use super::{
     document::{EnvDocument, InvariantViolation, NodeId, NodeKind},
     parser::parse,
     redact::Redacted,
-    syntax::{AssignmentSyntax, QuoteStyle},
+    syntax::{AssignmentSyntax, LineTerminator, QuoteStyle},
 };
 
-/// Whether `set_value` may change the quote style of the node.
+/// Whether an edit may use double quotes when the initial style cannot hold the value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConversionPolicy {
     /// A value the current style cannot hold is an error.
@@ -36,6 +36,31 @@ pub enum EditCommand {
         before: Redacted<Vec<u8>>,
         after: Redacted<Vec<u8>>,
     },
+    InsertAssignment {
+        position: usize,
+        created_id: NodeId,
+        content: Redacted<Vec<u8>>,
+        neighbor: Option<TerminatorChange>,
+    },
+    RemoveAssignment {
+        node_id: NodeId,
+        original_position: usize,
+        original_content: Redacted<Vec<u8>>,
+        neighbor: Option<TerminatorChange>,
+    },
+}
+
+/// Full neighboring node bytes before and after adjusting its terminator.
+/// An empty `after` marks a blank line that disappeared when its terminator
+/// was stripped. Undo restores that node in place. Positions index the node
+/// array, including tombstones, and the edited node keeps its ID on replay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminatorChange {
+    pub node_id: NodeId,
+    pub before: Redacted<Vec<u8>>,
+    pub after: Redacted<Vec<u8>>,
+    pub before_terminator: Option<LineTerminator>,
+    pub after_terminator: Option<LineTerminator>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -49,6 +74,10 @@ pub enum SetValueOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum EditError {
+    #[error("the assignment key is invalid")]
+    InvalidKey,
+    #[error("cannot append after an unclosed quote")]
+    UnclosedQuote,
     #[error("the node does not exist")]
     NodeNotFound,
     #[error("the node was removed")]
@@ -139,6 +168,163 @@ pub fn set_value(
     }))
 }
 
+/// Appends an assignment using the dominant style and preserving the final
+/// newline state (SYNTAX SYN-06 and SYN-07). An empty body gets one LF.
+pub fn insert_assignment(
+    doc: &mut EnvDocument,
+    key: &str,
+    value: &str,
+    policy: ConversionPolicy,
+) -> Result<EditCommand, EditError> {
+    let mut bytes = key.bytes();
+    if !bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+        || !bytes.all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        return Err(EditError::InvalidKey);
+    }
+    if value.contains('\0') {
+        return Err(EditError::Unrepresentable);
+    }
+
+    let last = doc.nodes().iter().rfind(|node| !node.is_removed());
+    if doc.unclosed_quote_line().is_some()
+        && last.is_some_and(|node| matches!(node.kind(), NodeKind::Raw))
+    {
+        return Err(EditError::UnclosedQuote);
+    }
+
+    let dominant = doc.dominant_terminator();
+    let needs_separator = last.filter(|node| node.terminator().is_none());
+    let terminator = needs_separator.is_none().then_some(dominant);
+    let template = format!("{key}=");
+    let syntax = reparse(&template).ok_or(EditError::InvalidKey)?;
+    let mut line = match encode_in_node(&template, &syntax, value, dominant) {
+        Ok(line) => line,
+        Err(needs) if policy == ConversionPolicy::Reject => return Err(needs.into()),
+        Err(_) => {
+            let quoted = format!("{key}=\"\"");
+            let syntax = reparse(&quoted).ok_or(EditError::InvalidKey)?;
+            encode_in_node(&quoted, &syntax, value, dominant)?
+        }
+    };
+    if let Some(terminator) = terminator {
+        line.push_str(match terminator {
+            LineTerminator::Lf => "\n",
+            LineTerminator::CrLf => "\r\n",
+            LineTerminator::Cr => "\r",
+        });
+    }
+    let syntax = reparse(&line).ok_or(EditError::Unrepresentable)?;
+    let content = line.into_bytes();
+    let mut staged = doc.clone();
+    let neighbor = needs_separator
+        .map(|node| change_terminator(&mut staged, node.id(), Some(dominant)))
+        .transpose()?;
+    let position = staged.nodes().len();
+    let created_id = staged.insert_synthetic_node(
+        position,
+        content.clone(),
+        NodeKind::Assignment(syntax),
+        terminator,
+    );
+    staged.check_invariants().map_err(EditError::Invariant)?;
+    *doc = staged;
+    Ok(EditCommand::InsertAssignment {
+        position,
+        created_id,
+        content: Redacted::new(content),
+        neighbor,
+    })
+}
+
+/// Removes one assignment. SYN-08 strips the new last line's terminator
+/// when the removed line was the unterminated last line.
+pub fn remove_assignment(doc: &mut EnvDocument, node_id: NodeId) -> Result<EditCommand, EditError> {
+    let mut live = doc
+        .nodes()
+        .iter()
+        .enumerate()
+        .filter(|(_, node)| !node.is_removed());
+    let live_last = live.next_back();
+    let is_last = live_last.is_some_and(|(_, node)| node.id() == node_id);
+    let (original_position, node) = doc
+        .nodes()
+        .iter()
+        .enumerate()
+        .find(|(_, node)| node.id() == node_id)
+        .ok_or(EditError::NodeNotFound)?;
+    if node.is_removed() {
+        return Err(EditError::NodeRemoved);
+    }
+    if !matches!(node.kind(), NodeKind::Assignment(_)) {
+        return Err(EditError::NotAnAssignment);
+    }
+    let original_content = doc
+        .current_bytes(node)
+        .ok_or(EditError::NodeNotFound)?
+        .to_vec();
+    let mut staged = doc.clone();
+    let neighbor = if is_last && node.terminator().is_none() {
+        live.next_back()
+            .map(|(_, node)| change_terminator(&mut staged, node.id(), None))
+            .transpose()?
+    } else {
+        None
+    };
+    staged
+        .node_mut(node_id)
+        .ok_or(EditError::NodeNotFound)?
+        .set_removed(true);
+    staged.check_invariants().map_err(EditError::Invariant)?;
+    *doc = staged;
+    Ok(EditCommand::RemoveAssignment {
+        node_id,
+        original_position,
+        original_content: Redacted::new(original_content),
+        neighbor,
+    })
+}
+
+fn change_terminator(
+    doc: &mut EnvDocument,
+    node_id: NodeId,
+    after_terminator: Option<LineTerminator>,
+) -> Result<TerminatorChange, EditError> {
+    let node = doc.node(node_id).ok_or(EditError::NodeNotFound)?;
+    let before_terminator = node.terminator();
+    let before = doc
+        .current_bytes(node)
+        .ok_or(EditError::NodeNotFound)?
+        .to_vec();
+    let mut after = match before_terminator {
+        Some(terminator) => before
+            .strip_suffix(terminator.as_bytes())
+            .ok_or(EditError::Invariant(
+                InvariantViolation::TerminatorMismatch {
+                    node_id: node_id.get(),
+                },
+            ))?
+            .to_vec(),
+        None => before.clone(),
+    };
+    if let Some(terminator) = after_terminator {
+        after.extend_from_slice(terminator.as_bytes());
+    }
+    let node = doc.node_mut(node_id).ok_or(EditError::NodeNotFound)?;
+    node.set_removed(after.is_empty());
+    node.set_terminator(after_terminator);
+    node.set_replacement(Some(after.clone()));
+    Ok(TerminatorChange {
+        node_id,
+        before: Redacted::new(before),
+        after: Redacted::new(after),
+        before_terminator,
+        after_terminator,
+    })
+}
+
 /// Parses `text` as a single assignment node and returns its syntax.
 fn reparse(text: &str) -> Option<AssignmentSyntax> {
     let document = parse(text.as_bytes().to_vec()).ok()?;
@@ -214,6 +400,134 @@ mod tests {
         };
         let text = std::str::from_utf8(d.current_bytes(node).unwrap()).unwrap();
         decode(syntax.quote, text.get(syntax.value_range.clone()).unwrap())
+    }
+
+    #[test]
+    fn inserts_using_the_document_terminator_rules() {
+        for (source, expected) in [
+            ("", "export=x\n"),
+            ("\u{feff}", "\u{feff}export=x\n"),
+            ("A=1\n", "A=1\nexport=x\n"),
+            ("A=1\r\nB=2\r\nC=3\n", "A=1\r\nB=2\r\nC=3\nexport=x\r\n"),
+            ("A=1\nB=2\r\n", "A=1\nB=2\r\nexport=x\r\n"),
+            ("A=1\r", "A=1\rexport=x\r"),
+            ("A=1", "A=1\nexport=x"),
+            ("raw line", "raw line\nexport=x"),
+        ] {
+            let mut d = doc(source);
+            let EditCommand::InsertAssignment {
+                position,
+                created_id,
+                neighbor,
+                ..
+            } = insert_assignment(&mut d, "export", "x", Reject).unwrap()
+            else {
+                panic!("expected insertion");
+            };
+            assert!(d.nodes()[position].id() == created_id);
+            assert!(displayed(&d, position) == "x");
+            assert!(
+                d.serialize() == expected.as_bytes(),
+                "wrong insertion bytes"
+            );
+            if let Some(change) = neighbor {
+                assert!(change.before.expose() == source.as_bytes());
+                assert!(change.after.expose().ends_with(b"\n"));
+            }
+        }
+    }
+
+    #[test]
+    fn insertion_validation_and_conversion_are_atomic_and_redacted() {
+        let mut d = doc("A=1");
+        let original = d.clone();
+        for key in ["", "1A", "A-B", "A B", "é", "export A"] {
+            assert!(insert_assignment(&mut d, key, "x", Reject) == Err(EditError::InvalidKey));
+        }
+        let error = insert_assignment(&mut d, &format!("{SENTINEL}-"), "x", Reject).unwrap_err();
+        assert!(!format!("{error:?}{error}").contains(SENTINEL));
+        for policy in [Reject, ConvertToDouble] {
+            assert!(
+                insert_assignment(&mut d, "B", "\0", policy) == Err(EditError::Unrepresentable)
+            );
+        }
+        let value = format!("'{SENTINEL}");
+        assert!(matches!(
+            insert_assignment(&mut d, SENTINEL, &value, Reject),
+            Err(EditError::NeedsConversion(_))
+        ));
+        assert!(d == original);
+        let command = insert_assignment(&mut d, SENTINEL, &value, ConvertToDouble).unwrap();
+        assert!(displayed(&d, 1) == value);
+        assert!(!format!("{command:?}{command:#?}").contains(SENTINEL));
+
+        let mut open = doc("A=1\nB=\"open\n");
+        let original = open.clone();
+        assert!(insert_assignment(&mut open, "C", "x", Reject) == Err(EditError::UnclosedQuote));
+        assert!(open == original);
+    }
+
+    #[test]
+    fn removes_only_the_selected_occurrence_and_its_terminator() {
+        let source = include_str!("../../tests/fixtures/duplicate-keys.env");
+        for index in [0, 1] {
+            let mut d = doc(source);
+            let node = &d.nodes()[index];
+            let content = d.current_bytes(node).unwrap();
+            let start = d.nodes()[..index]
+                .iter()
+                .map(|node| d.current_bytes(node).unwrap().len())
+                .sum::<usize>();
+            let mut expected = source.as_bytes().to_vec();
+            expected.drain(start..start + content.len());
+            let node_id = node.id();
+            remove_assignment(&mut d, node_id).unwrap();
+            assert!(d.serialize() == expected, "wrong occurrence removed");
+        }
+
+        let mut d = doc(include_str!("../../tests/fixtures/no-trailing-newline.env"));
+        let last = d.nodes().last().unwrap().id();
+        let EditCommand::RemoveAssignment {
+            neighbor: Some(change),
+            ..
+        } = remove_assignment(&mut d, last).unwrap()
+        else {
+            panic!("expected neighbor terminator change");
+        };
+        assert!(change.before_terminator.is_some());
+        assert!(change.after_terminator.is_none());
+        assert!(!d.serialize().ends_with(b"\n"));
+    }
+
+    #[test]
+    fn removal_strips_a_raw_boundary_or_retires_an_empty_blank() {
+        for (source, expected) in [("raw line\nA=1", "raw line"), ("\nA=1", "")] {
+            let mut d = doc(source);
+            let target = id(&d, 1);
+            remove_assignment(&mut d, target).unwrap();
+            assert!(d.serialize() == expected.as_bytes());
+            assert!(d.check_invariants().is_ok());
+            insert_assignment(&mut d, "A", "1", Reject).unwrap();
+            let expected = if expected.is_empty() { "A=1\n" } else { source };
+            assert!(d.serialize() == expected.as_bytes());
+        }
+    }
+
+    #[test]
+    fn removal_errors_are_atomic_and_commands_are_redacted() {
+        let mut d = doc(&format!("# comment\n{SENTINEL}={SENTINEL}"));
+        let other = doc("A=1\nB=2\nC=3");
+        let original = d.clone();
+        assert!(remove_assignment(&mut d, id(&other, 2)) == Err(EditError::NodeNotFound));
+        assert!(remove_assignment(&mut d, id(&original, 0)) == Err(EditError::NotAnAssignment));
+        assert!(d == original);
+        let target = id(&d, 1);
+        let command = remove_assignment(&mut d, target).unwrap();
+        assert!(!format!("{command:?}{command:#?}").contains(SENTINEL));
+        assert!(d.serialize() == b"# comment");
+        let removed = d.clone();
+        assert!(remove_assignment(&mut d, target) == Err(EditError::NodeRemoved));
+        assert!(d == removed);
     }
 
     #[test]

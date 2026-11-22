@@ -98,7 +98,10 @@ impl EnvNode {
         self.kind = kind;
     }
 
-    #[allow(dead_code, reason = "reserved for structured editing")]
+    pub(crate) fn set_terminator(&mut self, terminator: Option<LineTerminator>) {
+        self.terminator = terminator;
+    }
+
     pub(crate) fn set_removed(&mut self, removed: bool) {
         self.removed = removed;
     }
@@ -335,22 +338,23 @@ impl EnvDocument {
             if !ids.insert(node.id) {
                 return Err(DuplicateId { node_id });
             }
-            if node.kind == NodeKind::Raw && (node.replacement.is_some() || node.removed) {
-                return Err(RawNodeEdited { node_id });
-            }
-
             let bytes = self
                 .current_bytes(node)
                 .ok_or(SpanOutOfBounds { node_id })?;
-            let actual_terminator = if bytes.ends_with(b"\r\n") {
-                Some(LineTerminator::CrLf)
-            } else if bytes.ends_with(b"\n") {
-                Some(LineTerminator::Lf)
-            } else if bytes.ends_with(b"\r") {
-                Some(LineTerminator::Cr)
-            } else {
-                None
-            };
+            if node.kind == NodeKind::Raw {
+                let original = match &node.origin {
+                    NodeOrigin::Source(span) => source
+                        .get(span.clone())
+                        .ok_or(SpanOutOfBounds { node_id })?,
+                    NodeOrigin::Synthetic(bytes) => bytes.expose(),
+                };
+                // SYN-07 and SYN-08 may adjust the boundary of an opaque
+                // line. Its body must remain exactly as it was.
+                if node.removed || without_terminator(original) != without_terminator(bytes) {
+                    return Err(RawNodeEdited { node_id });
+                }
+            }
+            let actual_terminator = trailing_terminator(bytes);
             if node.terminator != actual_terminator {
                 return Err(TerminatorMismatch { node_id });
             }
@@ -377,6 +381,18 @@ impl EnvDocument {
         }
         Ok(())
     }
+}
+
+fn trailing_terminator(bytes: &[u8]) -> Option<LineTerminator> {
+    [LineTerminator::CrLf, LineTerminator::Lf, LineTerminator::Cr]
+        .into_iter()
+        .find(|terminator| bytes.ends_with(terminator.as_bytes()))
+}
+
+fn without_terminator(bytes: &[u8]) -> &[u8] {
+    trailing_terminator(bytes)
+        .and_then(|terminator| bytes.strip_suffix(terminator.as_bytes()))
+        .unwrap_or(bytes)
 }
 
 // Copy ensures that diagnostics carry only value-free metadata.

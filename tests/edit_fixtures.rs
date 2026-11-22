@@ -13,7 +13,9 @@ use std::path::{Path, PathBuf};
 
 use envy::domain::codec::decode;
 use envy::domain::document::{EnvDocument, NodeKind};
-use envy::domain::edit::{ConversionPolicy, SetValueOutcome, set_value};
+use envy::domain::edit::{
+    ConversionPolicy, SetValueOutcome, insert_assignment, remove_assignment, set_value,
+};
 use envy::domain::parser::parse;
 use envy::domain::syntax::QuoteStyle;
 
@@ -200,6 +202,103 @@ fn reject_policy_never_changes_the_quote_style_in_any_fixture() {
                     ),
                 }
             }
+        }
+    }
+}
+
+#[test]
+fn insertion_preserves_fixture_bytes_and_reparses() {
+    for name in fixture_names() {
+        let bytes = fs::read(fixtures_dir().join(&name)).expect("fixture readable");
+        let mut doc = parse(bytes.clone()).expect("fixture parses");
+        if doc.unclosed_quote_line().is_some() {
+            continue;
+        }
+        let node_count = doc.nodes().len();
+        let dominant = doc.dominant_terminator().as_bytes();
+        let is_unterminated = doc
+            .nodes()
+            .last()
+            .is_some_and(|node| node.terminator().is_none());
+        insert_assignment(&mut doc, "INSERTED", "new", ConversionPolicy::Reject)
+            .unwrap_or_else(|_| panic!("{name}: append failed"));
+        let mut expected = bytes;
+        if is_unterminated {
+            expected.extend_from_slice(dominant);
+        }
+        expected.extend_from_slice(b"INSERTED=new");
+        if !is_unterminated {
+            expected.extend_from_slice(dominant);
+        }
+        assert!(doc.serialize() == expected, "{name}: append changed bytes");
+        assert!(doc.check_invariants().is_ok(), "{name}: invariants");
+        let parsed = parse(expected).expect("edited fixture parses");
+        assert_eq!(parsed.nodes().len(), node_count + 1, "{name}");
+        let NodeKind::Assignment(syntax) = parsed.nodes()[node_count].kind() else {
+            panic!("{name}: appended node is not an assignment");
+        };
+        assert!(syntax.key.expose() == "INSERTED", "{name}: key mismatch");
+        assert!(
+            decode(
+                syntax.quote,
+                node_text(&parsed, node_count)
+                    .get(syntax.value_range.clone())
+                    .expect("value range")
+            ) == "new",
+            "{name}: value mismatch"
+        );
+    }
+}
+
+#[test]
+fn removal_cuts_only_the_selected_fixture_node_and_required_terminator() {
+    for name in fixture_names() {
+        let bytes = fs::read(fixtures_dir().join(&name)).expect("fixture readable");
+        let original = parse(bytes.clone()).expect("fixture parses");
+        for (index, node) in original.nodes().iter().enumerate() {
+            if !matches!(node.kind(), NodeKind::Assignment(_)) {
+                continue;
+            }
+            let (mut start, end) = node_span(&original, index);
+            if index + 1 == original.nodes().len()
+                && node.terminator().is_none()
+                && let Some(previous) = index.checked_sub(1)
+            {
+                start -= original.nodes()[previous]
+                    .terminator()
+                    .expect("separator")
+                    .as_bytes()
+                    .len();
+            }
+            let mut expected = bytes.clone();
+            expected.drain(start..end);
+            let mut doc = original.clone();
+            remove_assignment(&mut doc, node.id())
+                .unwrap_or_else(|_| panic!("{name} node {index}: removal failed"));
+            assert!(
+                doc.serialize() == expected,
+                "{name} node {index}: wrong bytes cut"
+            );
+            assert!(doc.check_invariants().is_ok(), "{name} node {index}");
+            let parsed = parse(expected).expect("edited fixture parses");
+            assert!(
+                parsed.check_invariants().is_ok(),
+                "{name} node {index}: reparsed invariants"
+            );
+            let live_assignments = doc
+                .nodes()
+                .iter()
+                .filter(|n| !n.is_removed() && matches!(n.kind(), NodeKind::Assignment(_)));
+            let parsed_assignments = parsed
+                .nodes()
+                .iter()
+                .filter(|n| matches!(n.kind(), NodeKind::Assignment(_)));
+            assert!(
+                live_assignments
+                    .map(|n| doc.current_bytes(n))
+                    .eq(parsed_assignments.map(|n| parsed.current_bytes(n))),
+                "{name} node {index}: reparsed assignments changed"
+            );
         }
     }
 }

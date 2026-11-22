@@ -30,7 +30,9 @@
 
 use envy::domain::codec::{EncodeContext, decode, encode, encode_in_node};
 use envy::domain::document::{EnvDocument, NodeKind, NodeOrigin};
-use envy::domain::edit::{ConversionPolicy, EditError, SetValueOutcome, set_value};
+use envy::domain::edit::{
+    ConversionPolicy, EditError, SetValueOutcome, insert_assignment, remove_assignment, set_value,
+};
 use envy::domain::error::DomainError;
 use envy::domain::parser::parse;
 use envy::domain::syntax::{LineTerminator, QuoteStyle};
@@ -463,5 +465,35 @@ fn regression_cases() {
         if let Err(message) = check_properties(case) {
             panic!("regression case {index}: {message}");
         }
+    }
+}
+
+proptest! {
+    #![proptest_config(config())]
+
+    #[test]
+    fn inserting_and_removing_an_assignment_restores_the_template(
+        name in "[A-Za-z_][A-Za-z0-9_]{0,8}",
+        value in codec_value(),
+        template in prop::sample::select(vec!["A=1", "# comment", "A=1\r", "A=1\r\nB=2", "A=1\n"]),
+    ) {
+        prop_assume!(!value.contains('\0'));
+        let mut doc = parse(template.as_bytes().to_vec()).expect("template parses");
+        insert_assignment(&mut doc, &name, &value, ConversionPolicy::ConvertToDouble)
+            .expect("valid assignment inserts");
+        let reparsed = parse(doc.serialize()).expect("serialization parses");
+        let last = reparsed.nodes().last().expect("appended node");
+        let NodeKind::Assignment(syntax) = last.kind() else {
+            panic!("append did not produce an assignment");
+        };
+        let bytes = reparsed.current_bytes(last).expect("appended bytes");
+        let text = std::str::from_utf8(bytes).expect("UTF-8");
+        prop_assert!(syntax.key.expose() == &name, "key mismatch");
+        prop_assert!(decode(syntax.quote, text.get(syntax.value_range.clone()).expect("value range")) == value, "value mismatch");
+
+        let created_id = doc.nodes().last().expect("appended node").id();
+        remove_assignment(&mut doc, created_id).expect("remove inserted assignment");
+        prop_assert!(doc.serialize() == template.as_bytes(), "template bytes changed");
+        prop_assert!(doc.check_invariants().is_ok(), "invalid document after removal");
     }
 }
