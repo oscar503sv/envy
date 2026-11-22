@@ -1217,6 +1217,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Pruebas manuales de teclado documentadas.
 
+**Heredado del QA de ENV-T029 (2026-11-22):** guardar con la sesión limpia cuando el disco cambió recarga automáticamente y crea un historial nuevo: se pierde deshacer/rehacer de ediciones ya guardadas. Decidir aquí si es aceptable o si hace falta conservar el historial (p. ej. confirmar antes de recargar).
+
 <a id="env-t040"></a>
 #### ENV-T040 — Implementar las acciones Guardar y Guardar como en la UI
 
@@ -1266,6 +1268,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Prueba manual por estado; test GTK si hay display.
 
+**Heredado del QA de ENV-T029 (2026-11-22):** un archivo borrado reporta a la vez `missing` y no escribible: la UI debe priorizar `missing`. Tras un fallo de verificación posterior a la escritura con motivo distinto de `Content` (p. ej. permisos ampliados) la sesión mantiene un aviso persistente que bloquea guardar hasta que el usuario lo reconozca: mostrarlo de forma visible y no descartable sin acción.
+
 <a id="env-t042"></a>
 #### ENV-T042 — Implementar el banner de conflicto y sus flujos de resolución
 
@@ -1290,6 +1294,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Revisar conflicto no muestra valores por defecto.
 
 **Pruebas:** Prueba manual con edición externa concurrente (editor de texto y script).
+
+**Heredado del QA de ENV-T029 (2026-11-22):** un conflicto cuyo hash no cambió (chmod, touch, rename externos) es solo de metadatos: presentarlo como tal, no como conflicto de contenido; se resuelve con la sobrescritura confirmada de la versión revisada. El conflicto no se limpia al deshacer hasta quedar limpio; solo lo limpian una observación igual a la base, recargar, sobrescribir confirmado o guardar como.
 
 <a id="env-t043"></a>
 #### ENV-T043 — Implementar el aviso de enlace simbólico y la selección explícita del destino
