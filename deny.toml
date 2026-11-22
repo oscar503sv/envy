@@ -1,0 +1,22 @@
+[advisories]
+version = 2
+unmaintained = "all"
+yanked = "deny"
+
+[licenses]
+version = 2
+allow = [
+    "Apache-2.0", # Alternative license used by thiserror and the proc-macro dependencies.
+    "GPL-3.0-or-later", # License of the workspace crate.
+    "MIT", # Permissive license used by thiserror and the proc-macro dependencies.
+    "Unicode-3.0", # Required by unicode-ident.
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

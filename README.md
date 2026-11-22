@@ -72,13 +72,15 @@ Stack:
 - Cargo with `build.rs` as the build system
 - Flatpak with the GNOME 51 runtime
 
-Build and check:
+GitHub Actions runs the core checks on Linux without GTK system libraries. To run the same checks locally, use the commands below. The supply-chain check requires cargo-deny.
 
 ```sh
 cargo build
-cargo test
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
+cargo test --locked --doc
+cargo deny check
 ```
 
 Flatpak build instructions will be added together with the manifest.
