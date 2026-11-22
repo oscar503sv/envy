@@ -537,6 +537,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Heredado del QA de ENV-T011 (2026-11-22):** la regla de SYNTAX §5.3 "CRLF cuenta como un solo carácter tras `\`" no es observable en el parser (solo decide dónde cierra la comilla, y el resultado es el mismo); se materializa en el decode. ValueCodec debe consumir `\` + CRLF como un único par y mostrarlo literal (`\` + salto), con un test que lo fije.
 
+**Reconciliación con SYNTAX §6 (2026-11-22):** SYNTAX §6.2 es normativo y solo exige `decode(encode(v)) == v`, no `encode(decode(raw)) == raw`. El criterio 1 se aplica por tanto a los valores canónicos, con una lista explícita de excepciones en `tests/codec_fixtures.rs` (cada entrada cita la regla de SYNTAX que la hace no canónica; el test falla si una entrada pasa a ser canónica). El criterio 3 se cumple porque §5.3 define de forma determinista cada `\X` (no existe ninguna secuencia ambigua; las desconocidas son literales), así que ningún valor se marca como no editable. No existe `Unrepresentable` porque `encode` en `Double` nunca falla. Excepción (QA de ENV-T014): un valor con U+0000 no cabe en ningún estilo, porque el parser vuelve `Raw` toda línea con NUL (SYNTAX §5.4, Q-15); `encode_in_node` lo rechaza con `RoundTripMismatch` y ENV-T016 debe rechazarlo sin ofrecer conversión.
+
 <a id="env-t015"></a>
 #### ENV-T015 — Crear el ejemplo interno roundtrip de verificación de fidelidad
 
@@ -587,6 +589,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Funciona en valores multilínea y sobre claves duplicadas afectando solo a la ocurrencia elegida.
 
 **Pruebas:** Tests unitarios por estilo de comillas, multilínea, Unicode y duplicados.
+
+**Heredado del QA de ENV-T014 (2026-11-22):** un valor que contiene U+0000 no es representable en ningún estilo (la línea pasaría a `Raw`). SetValue debe rechazarlo con un error propio antes de ofrecer la conversión a `Double`, y nunca aplicar una conversión que degrade el nodo a `Raw`.
 
 <a id="env-t017"></a>
 #### ENV-T017 — Implementar el comando InsertAssignment al final del documento
@@ -916,6 +920,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - **D-12 y D-34 aprobadas el 2026-11-22** con estas correcciones (ver DECISIONS.md); xattr/ACL/SELinux se comparan y un cambio es error visible (no se copian en v0.1).
 - Criterios añadidos: sin `replace_contents`; `PRIVATE` en toda llamada; pre-vuelo uid **y** gid, directorio seguro, repetido justo antes de `replace`; archivo inexistente ⇒ conflicto; verificación contra el `lstat` fresco (dev+ino, uid, gid, modo, ACL, SELinux).
 
+**Heredado del spike ENV-T054 (2026-11-22):** dentro del sandbox Flatpak el pre-vuelo funciona igual (modo, uid/gid, `nlink`, symlink dentro de carpetas, ACL), pero los grupos suplementarios aparecen como gid 65534: debe tratarse como no conservable, porque GIO no puede hacer `fchown` y cae al truncado en el sitio (medido). La etiqueta SELinux (siempre `fusefs_t`) y el padre de un archivo suelto no son observables: limitación documentada del modo Flatpak (D-19, condición 7).
+
 <a id="env-t029"></a>
 #### ENV-T029 — Implementar DocumentSession y la máquina de estados del documento
 
@@ -990,6 +996,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Un guardado externo por renombrado (estilo vim/sed -i) sigue detectándose.
 
 **Pruebas:** Tests de integración con bucle principal GLib (sin display); matriz completa en T069.
+
+**Heredado del spike ENV-T054 (2026-11-22):** en Flatpak no llega ningún evento de `GFileMonitor` por ediciones hechas desde el host sobre archivos abiertos por el document portal (solo las escrituras de la propia app generan eventos). El adaptador debe ofrecer además una comprobación por sondeo (etag + hash de T027) al recuperar el foco de la ventana y con un temporizador mientras haya documentos abiertos, con la misma coalescencia. El sondeo nunca actualiza la línea base de D-12: solo marca «cambiado externamente» (D-19, condición 6). Ver [informe](spikes/ENV-T054-flatpak-portals.md), caso 5 y §4.
 
 <a id="env-t032"></a>
 #### ENV-T032 — Implementar el resumen de revisión de conflicto sin valores
@@ -1585,6 +1593,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Tests unitarios de serialización/validación; test de integración con tempdir.
 
+**Heredado del spike ENV-T054 (2026-11-22):** la referencia a persistir es la ruta del document portal (`/run/user/UID/doc/<id>/<nombre>`); la ruta que se muestra sale del xattr `document-portal.host-path`. La concesión está ligada al inodo: si la carpeta se borra y se recrea, la referencia falla con `NotFound` y hay que ofrecer «Volver a elegir la carpeta». Política propuesta en D-19.
+
 <a id="env-t056"></a>
 #### ENV-T056 — Implementar la gestión de proyectos y carpetas de servicio
 
@@ -1826,6 +1836,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] La inserción requiere confirmación y es deshacible.
 
 **Pruebas:** Prueba manual con fixtures de ejemplo; tests de T023.
+
+**Heredado del spike ENV-T054 (2026-11-22):** en Flatpak, abrir un archivo suelto no da acceso a sus hermanos; si no hay carpeta elegida, la comparación con `.env.example` debe ofrecer elegir la carpeta en vez de fallar.
 
 <a id="env-t066"></a>
 #### ENV-T066 — Implementar los avisos de claves duplicadas en el editor

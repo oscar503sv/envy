@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de decisiones
 
-> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-12**, **D-23**, **D-24**, **D-32** y **D-34** (aprobadas por el usuario; D-12, D-23, D-24 y D-34 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
+> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-12**, **D-19**, **D-23**, **D-24**, **D-32** y **D-34** (aprobadas por el usuario; D-12, D-19, D-23, D-24 y D-34 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
 > **Regla:** este documento no modifica [`docs/PRD.md`](../PRD.md) ni [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md). Los cambios que esos documentos necesiten se registran como propuestas en la §3 para que el usuario los apruebe y los aplique.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [RISKS](RISKS.md) · [MILESTONES](MILESTONES.md)
 
@@ -211,16 +211,30 @@ Resultados:
   - *xattr/ACL/SELinux:* se comparan en la verificación posterior (ACL de acceso y etiqueta SELinux); si cambian, error visible. No se copian en v0.1.
 
 <a id="d-19"></a>
-#### D-19 — Política de acceso a carpetas en Flatpak
+#### D-19 — Política de acceso a carpetas en Flatpak — **RESUELTA**
 - **Contexto:** PRD §13, §8.9; TD §12. Depende del spike ENV-T054.
 - **Opciones:** (a) solo portales (selección de carpeta + persistencia del document portal); (b) portales + permiso ampliado documentado y justificado (p. ej. `--filesystem=home`), nunca silencioso; (c) Workspace limitado en Flatpak con limitaciones comunicadas.
 - **Recomendación:** (a) si el spike lo valida; si no, presentar (b)/(c) al usuario con trade-offs. Bloquea el release Flatpak con Workspace (TD §16).
 - **Fecha límite:** S10 (ENV-T055), **2027-01-25**. El spike ENV-T054 termina en S03 (2026-12-11).
+- **Evidencia ENV-T054 (2026-11-22):** [informe del spike](spikes/ENV-T054-flatpak-portals.md). Con finish-args sin ningún `--filesystem`, funcionan: elegir carpeta por el portal, enumerarla recursivamente, escribir con la estrategia de D-12 y reabrirla sin diálogo tras reiniciar la app y los portales. Limitaciones: (1) dentro del sandbox no llega ningún evento de `GFileMonitor` por ediciones hechas desde el host; (2) la concesión está ligada al inodo y se pierde si la carpeta se borra y se recrea; (3) abrir un archivo suelto no da acceso a sus hermanos.
+- **Resolución (2026-11-22):** el usuario aprueba la opción **(a)**, solo portales, con estas condiciones:
+  1. finish-args: `--share=ipc --socket=wayland --socket=fallback-x11 --device=dri`, sin `--filesystem`.
+  2. Referencia persistente = ruta del document portal; se muestra la ruta del host leída del xattr `document-portal.host-path`.
+  3. Si la referencia falla al arrancar (`NotFound`), estado «acceso retirado» con la acción «Volver a elegir la carpeta».
+  4. En Flatpak, la detección de cambios externos combina `GFileMonitor` con sondeo por etag/hash al recuperar el foco y con un temporizador mientras hay documentos abiertos (afecta a ENV-T031).
+  5. Comparar con `.env.example` o descubrir hermanos exige haber elegido la carpeta; con un archivo suelto se ofrece elegirla.
+  6. El sondeo nunca actualiza la línea base de D-12: solo marca «cambiado externamente». La base solo cambia al recargar, al fusionar o tras un guardado propio verificado; nunca se recarga sola con cambios sin guardar, y el sondeo se pausa durante un guardado propio.
+  7. El pre-vuelo de D-12/D-34 se aplica igual dentro del sandbox. Un gid no mapeado (65534) cuenta como no conservable. Limitaciones documentadas del modo Flatpak: la etiqueta SELinux y el directorio padre de un archivo suelto no son verificables, y un symlink abierto como archivo suelto llega ya resuelto por el portal.
+  8. El xattr `document-portal.host-path` solo se lee en rutas bajo `/run/user/<uid>/doc/`, se relee en cada apertura (no se persiste) y se muestra con caracteres de control y bidi escapados; si falta, se muestra el nombre base.
+  9. Mensajes distintos para «la carpeta cambió o se recreó» y «acceso retirado», ambos con «Volver a elegir la carpeta». Aviso antes de guardar como Workspace una carpeta que sea `$HOME` o la raíz de un montaje. «Olvidar carpeta» no promete revocar el acceso del sandbox.
+  10. Los URIs recibidos por CLI se rechazan si su esquema no es `file`.
+- **Revisión de seguridad (2026-11-22):** veredicto REVIEW, sin hallazgos críticos ni altos. finish-args aprobables tal cual. F2 (caché del FUSE) se descartó con medición; F1 se midió y da las condiciones 6–7; el resto queda recogido en las condiciones 8–10. Detalle en el §4 del [informe](spikes/ENV-T054-flatpak-portals.md).
 
 <a id="d-20"></a>
 #### D-20 — Asociación de archivos (MIME) y CLI en Flatpak
 - **Contexto:** PRD §7.1, TD §9: no reclamar `text/plain` genérico. Puede requerir definir un tipo MIME propio por patrón de nombre o limitarse a "Abrir con".
 - **Recomendación:** decidir con la evidencia de ENV-T054 y validar en ENV-T081; documentar el flujo CLI Flatpak (`flatpak run` con reenvío de archivos) como experiencia separada (PRD US-01).
+- **Evidencia ENV-T054 (2026-11-22):** `flatpak run --file-forwarding <app> @@ <ruta> @@` entrega archivos y carpetas como rutas del document portal, con la ruta del host disponible en el xattr. Una ruta plana sin reenvío falla con `NotFound`. El `.desktop` debe usar `@@u %U @@` ([informe](spikes/ENV-T054-flatpak-portals.md), casos 9–10).
 - **Fecha límite:** S13 (ENV-T081), 2027-02-15.
 
 ### 2.3 Decisiones de planificación y de implementación
