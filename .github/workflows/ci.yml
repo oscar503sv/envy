@@ -24,6 +24,9 @@ jobs:
     name: Formatting, Clippy and tests
     runs-on: ubuntu-24.04
     timeout-minutes: 20
+    env:
+      # Property tests run fewer cases in CI than locally (default 4096).
+      PROPTEST_CASES: "256"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,6 +38,9 @@ jobs:
         with:
           # PR runs execute untrusted build scripts; only main writes the cache.
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Verify fixture checksums
+        # The corpus is a byte-exact oracle; any accidental edit must fail CI.
+        run: cd tests/fixtures && sha256sum --check --strict SHA256SUMS
       - name: Check formatting
         run: cargo fmt --all --check
       - name: Run Clippy
