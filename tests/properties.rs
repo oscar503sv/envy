@@ -497,3 +497,134 @@ proptest! {
         prop_assert!(doc.check_invariants().is_ok(), "invalid document after removal");
     }
 }
+
+proptest! {
+    #![proptest_config(config())]
+
+    #[test]
+    fn history_round_trips_random_edit_sequences(
+        template_index in 0_usize..5,
+        steps in vec((0_u8..8, any::<usize>(), 0_usize..5, 1_usize..=3), 1..32),
+    ) {
+        use envy::domain::history::{EditHistory, EditRequest};
+        use envy::domain::redact::Redacted;
+
+        let templates = [
+            include_bytes!("fixtures/no-trailing-newline.env").as_slice(),
+            include_bytes!("fixtures/plain.env").as_slice(),
+            b"\xef\xbb\xbf# note\r\nA='a'\r\n\r\nB=2",
+            b"opaque\r\nA=1",
+            b"",
+        ];
+        let input = templates[template_index];
+        let mut history = EditHistory::new(parse(input.to_vec()).unwrap()).unwrap();
+        let values = ["", "plain", "it's quoted", "multi\nline", "é世"];
+        let policy = ConversionPolicy::ConvertToDouble;
+        let mut mirror = vec![input.to_vec()];
+        let mut cursor = 0_usize;
+        let mut saved = input.to_vec();
+        let check = |history: &EditHistory, expected: &[u8], saved: &[u8]| {
+            prop_assert!(history.document().check_invariants().is_ok());
+            let actual = history.document().serialize();
+            prop_assert!(actual == expected, "history bytes differ from mirror");
+            prop_assert_eq!(history.is_dirty(), actual != saved);
+            Ok(())
+        };
+
+        for (action, selector, value_index, batch_size) in steps {
+            let document = history.document().clone();
+            let ids: Vec<_> = document.nodes().iter()
+                .filter(|node| !node.is_removed() && matches!(node.kind(), NodeKind::Assignment(_)))
+                .map(|node| node.id())
+                .collect();
+            let value = values[value_index];
+            let mut expected = document.clone();
+            let edit = match action {
+                0 if !ids.is_empty() => {
+                    let node_id = ids[selector % ids.len()];
+                    let changed = matches!(set_value(&mut expected, node_id, value, policy).unwrap(),
+                        SetValueOutcome::Applied(_));
+                    Some((history.apply(EditRequest::SetValue {
+                        node_id, value: Redacted::new(value), policy,
+                    }), changed))
+                }
+                1 => {
+                    insert_assignment(&mut expected, "K", value, policy).unwrap();
+                    Some((history.apply(EditRequest::InsertAssignment {
+                        key: Redacted::new("K"), value: Redacted::new(value), policy,
+                    }), true))
+                }
+                2 if !ids.is_empty() => {
+                    let node_id = ids[selector % ids.len()];
+                    remove_assignment(&mut expected, node_id).unwrap();
+                    Some((history.apply(EditRequest::RemoveAssignment { node_id }), true))
+                }
+                3 => {
+                    prop_assert_eq!(history.undo().unwrap(), cursor > 0);
+                    cursor = cursor.saturating_sub(1);
+                    None
+                }
+                4 => {
+                    let can_redo = cursor + 1 < mirror.len();
+                    prop_assert_eq!(history.redo().unwrap(), can_redo);
+                    cursor += usize::from(can_redo);
+                    None
+                }
+                5 => {
+                    history.mark_saved();
+                    saved.clone_from(&mirror[cursor]);
+                    None
+                }
+                6 | 7 => {
+                    let requests = (0..batch_size).map(|index| {
+                        let key = if action == 7 && index + 1 == batch_size { "" } else { "K" };
+                        EditRequest::InsertAssignment {
+                            key: Redacted::new(key), value: Redacted::new(value), policy,
+                        }
+                    });
+                    let result = history.apply_batch(requests);
+                    if action == 7 {
+                        prop_assert!(result.is_err());
+                        prop_assert!(history.document() == &document, "failed batch changed document");
+                        None
+                    } else {
+                        for _ in 0..batch_size {
+                            insert_assignment(&mut expected, "K", value, policy).unwrap();
+                        }
+                        Some((result, true))
+                    }
+                }
+                _ => None,
+            };
+            if let Some((result, changed)) = edit {
+                prop_assert_eq!(result.expect("valid edit").is_some(), changed);
+                if changed {
+                    mirror.truncate(cursor + 1);
+                    mirror.push(expected.serialize());
+                    cursor += 1;
+                }
+            }
+            check(&history, &mirror[cursor], &saved)?;
+            prop_assert_eq!(history.can_undo(), cursor > 0);
+            prop_assert_eq!(history.can_redo(), cursor + 1 < mirror.len());
+        }
+
+        for expected in &mirror[cursor + 1..] {
+            prop_assert!(history.redo().unwrap());
+            check(&history, expected, &saved)?;
+        }
+        prop_assert!(!history.redo().unwrap());
+        for expected in mirror[..mirror.len() - 1].iter().rev() {
+            prop_assert!(history.undo().unwrap());
+            check(&history, expected, &saved)?;
+        }
+        prop_assert!(!history.undo().unwrap());
+        check(&history, input, &saved)?;
+        for expected in &mirror[1..] {
+            prop_assert!(history.redo().unwrap());
+            check(&history, expected, &saved)?;
+        }
+        prop_assert!(!history.redo().unwrap());
+        check(&history, mirror.last().unwrap(), &saved)?;
+    }
+}

@@ -31,6 +31,7 @@ pub enum ConversionPolicy {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EditCommand {
+    Batch(Vec<EditCommand>),
     SetValue {
         node_id: NodeId,
         before: Redacted<Vec<u8>>,
@@ -294,6 +295,27 @@ fn change_terminator(
 ) -> Result<TerminatorChange, EditError> {
     let node = doc.node(node_id).ok_or(EditError::NodeNotFound)?;
     let before_terminator = node.terminator();
+    if matches!(node.kind(), NodeKind::Raw) {
+        let mut live = doc.nodes().iter().rev().filter(|node| !node.is_removed());
+        let last = live.next();
+        let is_valid = match (before_terminator, after_terminator) {
+            (None, Some(terminator)) => {
+                last.is_some_and(|node| node.id() == node_id)
+                    && terminator == doc.dominant_terminator()
+            }
+            (Some(_), None) => {
+                last.is_some_and(|node| {
+                    node.terminator().is_none() && matches!(node.kind(), NodeKind::Assignment(_))
+                }) && live.next().is_some_and(|node| node.id() == node_id)
+            }
+            _ => false,
+        };
+        if !is_valid {
+            return Err(EditError::Invariant(InvariantViolation::RawNodeEdited {
+                node_id: node_id.get(),
+            }));
+        }
+    }
     let before = doc
         .current_bytes(node)
         .ok_or(EditError::NodeNotFound)?

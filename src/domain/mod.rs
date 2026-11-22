@@ -8,6 +8,7 @@ pub mod document;
 pub mod edit;
 pub mod environment;
 pub mod error;
+pub mod history;
 pub mod parser;
 pub mod redact;
 pub mod secrets;
