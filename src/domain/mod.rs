@@ -3,9 +3,11 @@
 //! Performs no I/O and must not depend on GTK, GDK, libadwaita, GLib or Gio.
 
 pub mod codec;
+pub mod compare;
 pub mod document;
 pub mod environment;
 pub mod error;
 pub mod parser;
 pub mod redact;
+pub mod secrets;
 pub mod syntax;
