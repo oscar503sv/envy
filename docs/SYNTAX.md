@@ -143,6 +143,7 @@ Sea `v` el primer carácter tras `=` y el tramo `W` de `WS`.
 - Un `CR` solitario cuenta como terminador dentro de un valor entre comillas (necesario para archivos solo-CR; ver Q-04).
 - `is_multiline = true` si el valor contiene al menos un terminador.
 - Dentro de un valor multilínea, las líneas **no** se clasifican: aunque parezcan `KEY=1` o `# x`, son contenido (SYN-35).
+- Excepción (aclaración de §11 y Q-15, 2026-11-22): U+0000 en cualquier línea física que cubra el nodo, incluida la parte posterior al cierre, convierte el nodo entero en `Raw` desde la línea de apertura hasta la de cierre.
 
 ### 5.5 Qué puede seguir a la comilla de cierre — D-11 regla 4
 

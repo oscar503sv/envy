@@ -535,6 +535,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Tests tabulares por estilo (sin comillas, simple, doble, multilínea) con casos límite.
 
+**Heredado del QA de ENV-T011 (2026-11-22):** la regla de SYNTAX §5.3 "CRLF cuenta como un solo carácter tras `\`" no es observable en el parser (solo decide dónde cierra la comilla, y el resultado es el mismo); se materializa en el decode. ValueCodec debe consumir `\` + CRLF como un único par y mostrarlo literal (`\` + salto), con un test que lo fije.
+
 <a id="env-t015"></a>
 #### ENV-T015 — Crear el ejemplo interno roundtrip de verificación de fidelidad
 
@@ -861,7 +863,9 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Pruebas:** Tests de integración con tempfile para cada caso (sin display).
 
-**Heredado de la revisión de seguridad de ENV-T010 (2026-11-22):** el parser usa ~165× el tamaño del archivo en memoria (medido: 20 MiB de `\n` → 3,4 GB RSS). Aplicar un límite de tamaño antes de leer (`metadata` + lectura con `take(limit + 1)`, propuesta 8–16 MiB; por encima, rechazar o abrir en modo protegido con mensaje claro) y parsear fuera del hilo principal. Opcional en el núcleo: `split_lines` como iterador, `Vec::with_capacity` y clave como rango.
+**Heredado de la revisión de seguridad de ENV-T010 (2026-11-22):** el parser usa ~165× el tamaño del archivo en memoria (medido: 20 MiB de `\n` → 3,4 GB RSS; la revisión de ENV-T011 midió un pico de heap de ~190–310× según el tamaño). Aplicar un límite de tamaño antes de leer (`metadata` + lectura con `take(limit + 1)`, propuesta 8–16 MiB; por encima, rechazar o abrir en modo protegido con mensaje claro) y parsear fuera del hilo principal. Opcional en el núcleo: `split_lines` como iterador, `Vec::with_capacity` y clave como rango.
+
+**Heredado de la revisión de seguridad del spike ENV-T025 (2026-11-22):** `base` debe capturar hash, `etag::value`, **dev + inodo**, uid, gid, modo, nlink, si es symlink, propietario/modo/sticky del directorio padre, presencia de ACL (`system.posix_acl_access`, y `system.posix_acl_default` en el padre) y etiqueta SELinux. Leer sin seguir symlinks y comprobar que la identidad del descriptor leído (`fstat`) coincide con la consultada.
 
 <a id="env-t028"></a>
 #### ENV-T028 — Implementar replace_if_unchanged con verificación posterior
@@ -890,6 +894,26 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 **Pruebas:** Tests de integración con tempfile; la matriz completa se cubre en T067.
 
 **Riesgos / seguridad:** Ventana TOCTOU residual (R-01); documentar la limitación, no prometer atomicidad concurrente.
+
+**Estrategia del spike ENV-T025 (2026-11-22, [informe](spikes/ENV-T025-gio-save.md) §4):**
+1. `lstat`: rechazar symlinks por defecto (Gio escribe el target en el sitio; un colgante crea el target).
+2. Pre-vuelo de ruta atómica: archivo regular con `nlink == 1`, directorio padre escribible, archivo escribible y uid/gid conservables. Si falla, bloquear Guardar y ofrecer Guardar como (D-12.3): Gio cae a `ftruncate` + escritura en el sitio sin avisar y no se puede detectar a posteriori.
+3. Hash + etag justo antes (el etag local es solo el mtime en ns: ciego a mtime restaurado y a chmod; el hash es obligatorio).
+4. `File::replace(Some(etag), make_backup = false, FileCreateFlags::PRIVATE)` + `write_all` + `close`, **no** `replace_contents` (ver revisión de seguridad); nunca `REPLACE_DESTINATION` (pierde modo y grupo, rompe enlaces).
+5. Verificación posterior contra el `lstat` fresco del pre-vuelo: contenido, inodo distinto del base, modo/uid/gid; error visible si difieren (D-12.2), sin `chmod` automático hacia un modo más permisivo.
+- El etag solo se comprueba al abrir el stream: un cambio externo entre el open y el rename se pierde sin error. Se documenta como "detección de cambios best-effort, no exclusión mutua" (D-12.1).
+- La ruta rename pierde xattr de usuario, ACL y la etiqueta SELinux personalizada (pendiente de decisión).
+- T027 debe capturar en `base`: hash, `etag::value`, `unix::mode/uid/gid/inode/nlink` y si es symlink.
+
+**Revisión de seguridad de la estrategia (2026-11-22, cybersecurity-engineer) — corrige la recomendación del spike:**
+- **B1 (alta, confirmado):** `replace_contents` cierra el stream tras un error de escritura y GLib hace el `rename`: el original queda sustituido por el contenido truncado (probado con `RLIMIT_FSIZE`). Soltar el stream sin cerrarlo hace lo mismo. Usar `File::replace` con un `Cancellable` propio; ante cualquier error, `cancel()` y `close(Some(&cancellable))` (GLib borra el temporal y no renombra). Un guard con `Drop` garantiza que ningún camino suelta el stream sin ese cierre.
+- **B2 (media, confirmado):** con `NONE`, el temporal `.goutputstream-XXXXXX` se crea con `0666 & ~umask` antes del `fchmod`; otro usuario con acceso al directorio puede abrirlo y leer los secretos. Usar `FileCreateFlags::PRIVATE` **siempre** (conserva 0600/0644 en archivos existentes, casos 3e/3f del spike).
+- **B3 (media):** el pre-vuelo exige `uid == euid` **y** gid en los grupos del proceso (no "o"); si no, Gio cae a escritura en el sitio.
+- **B4 (media, confirmado):** si el archivo se borra entre la comprobación y el guardado, Gio lo recrea ignorando el etag. "No existe" en el paso 3 ⇒ conflicto; inodo nuevo inesperado ⇒ no declarar éxito.
+- **B5 (media, riesgo residual):** Gio abre con `O_NOFOLLOW` pero ante `ELOOP` reabre siguiendo el enlace. En un directorio escribible por terceros, un symlink o archivo ajeno colocado tras el pre-vuelo recibe los secretos. Mitigación propuesta: pre-vuelo de "directorio seguro" (padre del euid o root y no escribible por grupo/otros salvo sticky) o un backend local basado en descriptores (`openat`/`renameat` con `rustix`). **Decidido (2026-11-22): pre-vuelo de directorio seguro en v0.1**; si falla, bloquear Guardar y ofrecer Guardar como. `rustix` queda para después, solo si hace falta.
+- **B6–B9 (media/baja):** no restaurar nunca a un modo más permisivo; comparar ACL y `security.selinux` en la verificación posterior (la ruta rename hereda la ACL por defecto del directorio); temporales huérfanos tras crash y sin `fsync` del directorio; Guardar como pasa por el mismo `lstat` y pre-vuelo.
+- **D-12 y D-34 aprobadas el 2026-11-22** con estas correcciones (ver DECISIONS.md); xattr/ACL/SELinux se comparan y un cambio es error visible (no se copian en v0.1).
+- Criterios añadidos: sin `replace_contents`; `PRIVATE` en toda llamada; pre-vuelo uid **y** gid, directorio seguro, repetido justo antes de `replace`; archivo inexistente ⇒ conflicto; verificación contra el `lstat` fresco (dev+ino, uid, gid, modo, ACL, SELinux).
 
 <a id="env-t029"></a>
 #### ENV-T029 — Implementar DocumentSession y la máquina de estados del documento
@@ -1851,6 +1875,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Ningún caso termina con éxito declarado y contenido distinto en disco.
 
 **Pruebas:** La propia suite; ejecutada en CI.
+
+**Filas añadidas por la revisión de seguridad del spike ENV-T025 (2026-11-22):** fallo de escritura a mitad (`setrlimit(RLIMIT_FSIZE)` con `SIGXFSZ` ignorado) y stream soltado sin cerrar; archivo borrado entre pre-vuelo y guardado; symlink o archivo cambiado tras el pre-vuelo (seam); directorio de grupo con y sin setgid; uid o gid ajeno (contenedor); directorio con ACL por defecto y etiqueta SELinux propia; `chattr +i`/`+a` (manual); directorio sticky; Guardar como sobre un symlink colgante; umask 000/002/022; temporal creado en 0600 (seam o shim).
 
 <a id="env-t068"></a>
 #### ENV-T068 — Crear la suite de regresión de edición

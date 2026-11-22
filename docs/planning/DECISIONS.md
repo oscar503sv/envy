@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de decisiones
 
-> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-23**, **D-24** y **D-32** (aprobadas por el usuario; D-23 y D-24 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
+> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-12**, **D-23**, **D-24**, **D-32** y **D-34** (aprobadas por el usuario; D-12, D-23, D-24 y D-34 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
 > **Regla:** este documento no modifica [`docs/PRD.md`](../PRD.md) ni [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md). Los cambios que esos documentos necesiten se registran como propuestas en la §3 para que el usuario los apruebe y los aplique.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [RISKS](RISKS.md) · [MILESTONES](MILESTONES.md)
 
@@ -191,12 +191,24 @@ Resultados:
   | Q-16 | Barra invertida final en `Unquoted` | Literal, sin continuación de línea |
 
 <a id="d-12"></a>
-#### D-12 — Política de guardado cuando faltan garantías
+#### D-12 — Política de guardado cuando faltan garantías — **RESUELTA**
 - **Contexto:** PRD §13 y TD §8.2/§16. Puntos a decidir tras ENV-T025:
   1. **Ventana de carrera residual:** en sistemas POSIX locales no hay reemplazo condicional atómico general; comprobación + reemplazo deja una ventana TOCTOU mínima (TD §8.2 ya lo reconoce). Además, en backends locales el etag de Gio suele derivarse del mtime (a verificar). Propuesta: hash + etag inmediatamente antes, reemplazo con etag, verificación posterior y **documentar la limitación** sin prometer atomicidad concurrente.
   2. **Permisos no conservados** (p. ej. 0600 → 0644): propuesta: tratarlo como error visible y no declarar éxito; restaurar el modo si es posible y verificable.
   3. **Sin reemplazo atómico** (p. ej. caída a escritura en el sitio): propuesta: bloquear el guardado normal y ofrecer Guardar como.
 - **Fecha límite:** S05 (ENV-T028), **2026-12-21** (semana festiva). El spike ENV-T025 termina en S02 (2026-12-04).
+- **Evidencia del spike ENV-T025 (2026-11-22, GLib 2.88.4, btrfs y tmpfs; [informe](spikes/ENV-T025-gio-save.md)):**
+  1. *Ventana TOCTOU:* confirmada. Gio compara el etag una sola vez, al abrir el stream; un cambio externo entre esa comprobación y el `rename` se pierde sin error (en la ruta en el sitio, el contenido se mezcla). El etag local es `sec:usec:nsec` del mtime: no detecta contenido cambiado con mtime restaurado ni cambios de permisos, así que el hash es obligatorio. La propuesta (hash + etag antes, replace con etag, verificación posterior, limitación documentada como "detección best-effort, no exclusión mutua") es viable.
+  2. *Permisos:* con `FileCreateFlags::NONE` y ruta rename se conservan 0600/0640/0644/0755 y el grupo propio; `REPLACE_DESTINATION` los pierde (0600 → 0644). La propuesta (verificar, restaurar o error visible) se mantiene como red de seguridad.
+  3. *Sin reemplazo atómico:* riesgo P0 confirmado. Con directorio padre sin escritura, enlace duro, symlink o `fchown` imposible, Gio hace `ftruncate` y escribe en el mismo inodo sin señal en la API (el archivo queda a 0 bytes desde el open). Solo se puede evitar con un pre-vuelo antes de guardar: bloquear y ofrecer Guardar como.
+  - Recomendación del spike: aceptar 1–3 tal como se proponen, tratar los enlaces duros como los symlinks (D-34) y decidir si se documenta o se copia la pérdida de xattr/ACL/etiqueta SELinux en la ruta rename. Pendiente de aprobación del usuario.
+  - **Revisión de seguridad de la recomendación (2026-11-22):** bloquea su aprobación tal como está. Cambios necesarios, ya trasladados a ENV-T027/T028/T067: no usar `replace_contents` (ante un error de escritura renombra el temporal truncado sobre el original), sino `replace` + cancelación antes de `close`; `FileCreateFlags::PRIVATE` siempre (el temporal nace legible por otros con `NONE`); pre-vuelo con uid **y** gid; archivo borrado ⇒ conflicto; sin `chmod` hacia modos más permisivos. Queda una decisión abierta: mitigar la carrera tras el pre-vuelo en directorios escribibles por terceros con un pre-vuelo de "directorio seguro" o con un backend local basado en descriptores (`rustix`), ver la nota de ENV-T028.
+  - **Resuelto (2026-11-22, usuario):** para v0.1 se usa el pre-vuelo de "directorio seguro": el directorio padre debe pertenecer al euid o a root y no ser escribible por grupo u otros, salvo que tenga sticky; si no se cumple, se bloquea Guardar y se ofrece Guardar como. El backend local con descriptores (`rustix`) queda como mejora posterior, solo si hace falta. 
+- **Resolución (2026-11-22, usuario):** se aprueba D-12 con las correcciones de la revisión de seguridad:
+  1. *Cambios externos:* detección best-effort, no exclusión mutua. Hash + etag justo antes (cambio o archivo inexistente ⇒ conflicto, sin escribir); `File::replace(Some(etag), make_backup = false, FileCreateFlags::PRIVATE)` + `write_all`; ante cualquier error, cancelar y cerrar con el `Cancellable` (original intacto, sin temporal). No se usa `replace_contents` ni `REPLACE_DESTINATION`. La ventana residual se documenta en la ayuda.
+  2. *Permisos:* verificación posterior de contenido, inodo, modo, uid y gid contra el `lstat` del pre-vuelo; cualquier diferencia ⇒ error visible, nunca éxito. Solo se corrige automáticamente un permiso hacia uno más restrictivo, nunca más permisivo.
+  3. *Sin reemplazo atómico:* pre-vuelo obligatorio (archivo regular no symlink, `nlink == 1`, archivo y directorio escribibles, uid propio **y** gid en los grupos del proceso, directorio seguro); si falla, se bloquea Guardar y se ofrece Guardar como. Guardar como pasa por el mismo `lstat` y pre-vuelo.
+  - *xattr/ACL/SELinux:* se comparan en la verificación posterior (ACL de acceso y etiqueta SELinux); si cambian, error visible. No se copian en v0.1.
 
 <a id="d-19"></a>
 #### D-19 — Política de acceso a carpetas en Flatpak
@@ -303,9 +315,11 @@ Resultados:
 - **Fecha límite:** S07 (ENV-T041), 2027-01-04.
 
 <a id="d-34"></a>
-#### D-34 — Enlaces duros (condicional al spike ENV-T025)
+#### D-34 — Enlaces duros — **RESUELTA**
 - **Contexto:** el PRD no menciona enlaces duros. Si el spike confirma que el reemplazo por renombrado los rompe, hay que decidir entre documentarlo como limitación o tratarlos como los enlaces simbólicos (aviso). No se planifica trabajo hasta conocer el resultado.
 - **Fecha límite:** S05, 2026-12-21.
+- **Evidencia (ENV-T025):** con `NONE` Gio no rompe el enlace pero escribe en el sitio tras `ftruncate` (no atómico); con `REPLACE_DESTINATION` lo rompe y pierde modo y grupo.
+- **Resolución (2026-11-22, usuario):** los enlaces duros (`nlink > 1`) se tratan como los symlinks: aviso, bloqueo del guardado normal y Guardar como (coherente con D-12.3). El trabajo cae en el pre-vuelo de ENV-T028.
 
 ## 3. Propuestas de cambio a PRD y TD (no aplicadas)
 
