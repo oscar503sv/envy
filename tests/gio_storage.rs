@@ -10,7 +10,7 @@ use std::{
     },
     path::{Path, PathBuf},
     process::Command,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 
 use envy::{
@@ -86,6 +86,7 @@ fn reads_regular_file_with_version_metadata_and_capabilities() {
         assert_eq!(snapshot.version.size, metadata.len());
         assert_eq!(snapshot.version.mtime, metadata.modified().ok());
         assert!(snapshot.version.etag.is_some());
+        assert!(!snapshot.version.etag.as_ref().unwrap().expose().is_empty());
         assert_eq!(
             identity.device_and_inode,
             Some((metadata.dev(), metadata.ino()))
@@ -112,9 +113,9 @@ fn reads_regular_file_with_version_metadata_and_capabilities() {
         }
         let capabilities = GioStorage.capabilities(&resource);
         assert_eq!(capabilities.is_writable, mode == 0o600);
-        assert!(!capabilities.supports_conditional_replace);
-        assert!(!capabilities.supports_atomic_replace);
-        assert!(!capabilities.can_preserve_permissions);
+        assert_eq!(capabilities.supports_conditional_replace, mode == 0o600);
+        assert_eq!(capabilities.supports_atomic_replace, mode == 0o600);
+        assert_eq!(capabilities.can_preserve_permissions, mode == 0o600);
         assert!(!format!("{resource:?} {snapshot:?}").contains(SENTINEL));
     }
 }
@@ -223,10 +224,7 @@ fn reads_hardlink_and_rejects_replacement_without_mutation() {
 
     let entries = dir.listing();
     let result = GioStorage.replace_if_unchanged(&resource, &before.version, b"new");
-    assert_eq!(
-        result.unwrap_err(),
-        StorageError::ConditionalReplaceUnsupported
-    );
+    assert_eq!(result.unwrap_err(), StorageError::AtomicReplaceUnsupported);
     assert!(GioStorage.read(&resource).unwrap() == before);
     assert!(fs::read(alias).unwrap() == SENTINEL.as_bytes());
     assert!(dir.listing() == entries);
@@ -332,4 +330,398 @@ fn repeated_reads_do_not_leak_descriptors() {
         GioStorage.read(&resource).unwrap();
     }
     assert_eq!(count(), before);
+}
+
+#[test]
+fn replaces_with_verified_hash_and_new_inode_in_sticky_directory() {
+    for mode in [0o600, 0o640, 0o644] {
+        let dir = TempDir::new();
+        set_mode(&dir.0, 0o1777);
+        let path = dir.path(SENTINEL);
+        fs::write(&path, b"old").unwrap();
+        set_mode(&path, mode);
+        let resource = resource(&path);
+        let base = GioStorage.read(&resource).unwrap().version;
+        let saved = GioStorage
+            .replace_if_unchanged(&resource, &base, SENTINEL.as_bytes())
+            .unwrap();
+        let identity = saved.identity.as_ref().unwrap();
+        assert_ne!(
+            identity.device_and_inode,
+            base.identity.unwrap().device_and_inode
+        );
+        assert_eq!(identity.mode, Some(mode));
+        assert!(saved.hash.expose() == &content_hash(SENTINEL.as_bytes()));
+        let readback = GioStorage.read(&resource).unwrap();
+        assert!(readback.version == saved);
+        assert!(readback.bytes.expose() == SENTINEL.as_bytes());
+        assert!(dir.listing() == [SENTINEL]);
+        assert!(!format!("{saved:?}").contains(SENTINEL));
+        let again = GioStorage
+            .replace_if_unchanged(&resource, &saved, b"again")
+            .unwrap();
+        assert!(GioStorage.read(&resource).unwrap().version == again);
+        assert!(dir.listing() == [SENTINEL]);
+    }
+}
+
+#[test]
+fn changed_deleted_and_symlink_destinations_are_never_written() {
+    let dir = TempDir::new();
+    let path = dir.path(SENTINEL);
+    let target = dir.path("target");
+    let destination = resource(&path);
+    fs::write(&path, b"old").unwrap();
+    set_mode(&path, 0o600);
+    let base = GioStorage.read(&destination).unwrap().version;
+    let replace = |error| {
+        let actual = GioStorage
+            .replace_if_unchanged(&destination, &base, SENTINEL.as_bytes())
+            .unwrap_err();
+        assert_eq!(actual, error);
+        assert!(!format!("{actual:?} {actual}").contains(SENTINEL));
+    };
+    set_mode(&path, 0o644);
+    replace(StorageError::Conflict);
+    assert!(fs::read(&path).unwrap() == b"old");
+    fs::write(&path, b"external").unwrap();
+    replace(StorageError::Conflict);
+    assert!(fs::read(&path).unwrap() == b"external");
+    fs::remove_file(&path).unwrap();
+    replace(StorageError::Conflict);
+    assert!(dir.listing().is_empty());
+
+    fs::write(&target, b"target").unwrap();
+    symlink(&target, &path).unwrap();
+    replace(StorageError::Symlink);
+    assert!(fs::read_link(path).unwrap() == target);
+    assert!(fs::read(target).unwrap() == b"target");
+}
+
+#[test]
+fn unsafe_directories_and_read_only_files_block_save() {
+    let dir = TempDir::new();
+    let parent = dir.path("parent");
+    let alias = dir.path("alias");
+    fs::create_dir(&parent).unwrap();
+    symlink(&parent, &alias).unwrap();
+    let path = parent.join(SENTINEL);
+    let destination = resource(&path);
+    fs::write(&path, b"old").unwrap();
+    set_mode(&path, 0o600);
+    let base = GioStorage.read(&destination).unwrap().version;
+    for (mode, error) in [
+        (0o555, StorageError::AtomicReplaceUnsupported),
+        (0o770, StorageError::PermissionsNotPreserved),
+        (0o777, StorageError::PermissionsNotPreserved),
+    ] {
+        set_mode(&parent, mode);
+        assert_eq!(
+            GioStorage.replace_if_unchanged(&destination, &base, b"new"),
+            Err(error)
+        );
+        let capabilities = GioStorage.capabilities(&destination);
+        assert!(capabilities.is_writable);
+        assert!(capabilities.supports_conditional_replace);
+        assert!(!capabilities.supports_atomic_replace);
+        assert!(!capabilities.can_preserve_permissions);
+    }
+    set_mode(&parent, 0o700);
+    assert_eq!(
+        GioStorage.replace_if_unchanged(&resource(&alias.join(SENTINEL)), &base, b"new"),
+        Err(StorageError::PermissionsNotPreserved)
+    );
+    set_mode(&path, 0o400);
+    assert_eq!(
+        GioStorage.replace_if_unchanged(&destination, &base, b"new"),
+        Err(StorageError::ReadOnly)
+    );
+    assert!(fs::read(path).unwrap() == b"old");
+}
+
+#[test]
+fn refuses_access_and_default_acl_before_publication() {
+    for is_default in [false, true] {
+        let dir = TempDir::new();
+        let path = dir.path(SENTINEL);
+        fs::write(&path, b"old").unwrap();
+        set_mode(&path, 0o640);
+        let owner = fs::metadata(&path).unwrap().uid();
+        let mut command = Command::new("setfacl");
+        if is_default {
+            command.arg("-d");
+        }
+        let acl = command
+            .args(["-m", &format!("u:{owner}:r")])
+            .arg(if is_default { &dir.0 } else { &path })
+            .output();
+        if !acl.is_ok_and(|output| output.status.success()) {
+            eprintln!("skipping ACL fixture: setfacl or filesystem ACL support unavailable");
+            return;
+        }
+        let destination = resource(&path);
+        let before = GioStorage.read(&destination).unwrap();
+        let identity = before.version.identity.as_ref().unwrap();
+        assert_eq!(identity.has_access_acl, Some(!is_default));
+        assert_eq!(
+            identity.parent.as_ref().unwrap().has_default_acl,
+            Some(is_default)
+        );
+        let directory_mtime = fs::metadata(&dir.0).unwrap().modified().unwrap();
+        assert_eq!(
+            GioStorage.replace_if_unchanged(&destination, &before.version, b"new"),
+            Err(StorageError::PermissionsNotPreserved)
+        );
+        assert!(GioStorage.read(&destination).unwrap() == before);
+        assert!(dir.listing() == [SENTINEL]);
+        assert_eq!(
+            fs::metadata(&dir.0).unwrap().modified().unwrap(),
+            directory_mtime
+        );
+    }
+}
+
+#[test]
+fn partial_write_preserves_original_and_removes_temporary_file() {
+    const CHILD: &str = "ENVY_GIO_FSIZE_TEST_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "partial_write_preserves_original_and_removes_temporary_file",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        return;
+    }
+
+    let dir = TempDir::new();
+    let path = dir.path(SENTINEL);
+    fs::write(&path, b"old").unwrap();
+    let destination = resource(&path);
+    let before = GioStorage.read(&destination).unwrap();
+    limit_child_file_size();
+    let bytes = SENTINEL.repeat(8192);
+    let error = GioStorage
+        .replace_if_unchanged(&destination, &before.version, bytes.as_bytes())
+        .unwrap_err();
+    assert!(matches!(error, StorageError::Io { .. }));
+    assert!(!format!("{error:?} {error}").contains(SENTINEL));
+    assert!(GioStorage.read(&destination).unwrap() == before);
+    assert!(dir.listing() == [SENTINEL]);
+}
+
+#[allow(
+    unsafe_code,
+    reason = "inject a partial file write in an isolated test process"
+)]
+fn limit_child_file_size() {
+    let limit = libc::rlimit {
+        rlim_cur: 4096,
+        rlim_max: 4096,
+    };
+    // SAFETY: SIG_IGN is valid for SIGXFSZ, and limit points to initialized
+    // storage. The child runs only the write-failure test.
+    unsafe {
+        assert_ne!(libc::signal(libc::SIGXFSZ, libc::SIG_IGN), libc::SIG_ERR);
+        assert_eq!(libc::setrlimit(libc::RLIMIT_FSIZE, &limit), 0);
+    }
+}
+
+#[test]
+fn refuses_custom_selinux_label_before_publication() {
+    if !Path::new("/sys/fs/selinux/enforce").exists() {
+        eprintln!("skipping SELinux fixture: SELinux is unavailable");
+        return;
+    }
+    let dir = TempDir::new();
+    let path = dir.path(SENTINEL);
+    fs::write(&path, b"old").unwrap();
+    set_mode(&path, 0o600);
+    let destination = resource(&path);
+    let original = GioStorage.read(&destination).unwrap().version;
+    let relabel = Command::new("chcon")
+        .args(["-t", "ssh_home_t"])
+        .arg(&path)
+        .output();
+    if !relabel.is_ok_and(|output| output.status.success()) {
+        eprintln!("skipping SELinux fixture: chcon could not set ssh_home_t");
+        return;
+    }
+    let base = GioStorage.read(&destination).unwrap().version;
+    let label =
+        |version: envy::services::storage::DiskVersion| version.identity.unwrap().selinux_label;
+    assert!(label(base.clone()) != label(original.clone()));
+    assert_eq!(
+        GioStorage.replace_if_unchanged(&destination, &base, b"new"),
+        Err(StorageError::PermissionsNotPreserved)
+    );
+    let after = GioStorage.read(&destination).unwrap();
+    assert!(after.bytes.expose() == b"old");
+    assert!(after.version == base);
+    assert!(dir.listing() == [SENTINEL]);
+}
+
+const RACE_CHILD: &str = "ENVY_GIO_RACE_TEST_CHILD";
+const RACE_ATTEMPTS: usize = 200;
+
+#[test]
+fn permission_race_preserves_complete_file_with_and_without_write_limit() {
+    if let Some(mode) = std::env::var_os(RACE_CHILD) {
+        if mode == "normal" {
+            clear_child_umask();
+            replaces_with_verified_hash_and_new_inode_in_sticky_directory();
+        }
+        run_permission_race(mode == "limited");
+        return;
+    }
+    for mode in ["normal", "limited"] {
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "permission_race_preserves_complete_file_with_and_without_write_limit",
+                "--nocapture",
+            ])
+            .env(RACE_CHILD, mode)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+#[allow(
+    clippy::unwrap_used,
+    reason = "test fixture setup should fail immediately"
+)]
+fn run_permission_race(is_limited: bool) {
+    let dir = TempDir::new();
+    let path = dir.path(SENTINEL);
+    let destination = resource(&path);
+    let old = b"old";
+    let new = vec![b'n'; 128 * 1024];
+    if is_limited {
+        limit_child_file_size();
+    }
+    let stop = AtomicBool::new(false);
+    let (mut successes, mut write_errors, mut refusals, mut post_failures) = (0, 0, 0, 0);
+    let mut size_limit_errors = 0;
+    for _ in 0..RACE_ATTEMPTS {
+        set_mode(&dir.0, 0o700);
+        fs::write(&path, old).unwrap();
+        set_mode(&path, 0o600);
+        let base = GioStorage.read(&destination).unwrap().version;
+        stop.store(false, Ordering::Relaxed);
+        let result = std::thread::scope(|scope| {
+            let (ready, start) = std::sync::mpsc::sync_channel(0);
+            let (stop_flag, parent) = (&stop, &dir.0);
+            scope.spawn(move || {
+                ready.send(()).unwrap();
+                while !stop_flag.load(Ordering::Relaxed) {
+                    set_mode(parent, 0o700);
+                    std::thread::sleep(std::time::Duration::from_micros(40));
+                    set_mode(parent, 0o555);
+                    std::thread::sleep(std::time::Duration::from_micros(40));
+                }
+                set_mode(parent, 0o700);
+            });
+            start.recv().unwrap();
+            let result = GioStorage.replace_if_unchanged(&destination, &base, &new);
+            stop.store(true, Ordering::Relaxed);
+            result
+        });
+        let bytes = fs::read(&path).unwrap();
+        assert!(bytes == old || bytes == new);
+        match result {
+            Ok(_) => {
+                successes += 1;
+                assert!(bytes == new);
+            }
+            Err(StorageError::Io { kind }) => {
+                write_errors += 1;
+                if kind == ErrorKind::FileTooLarge {
+                    size_limit_errors += 1;
+                }
+                assert!(bytes == old);
+            }
+            Err(StorageError::PostWriteVerificationFailed { .. }) => {
+                post_failures += 1;
+                assert!(!is_limited);
+                assert!(bytes == new);
+            }
+            Err(error) => {
+                refusals += 1;
+                assert!(matches!(
+                    error,
+                    StorageError::AtomicReplaceUnsupported
+                        | StorageError::PermissionsNotPreserved
+                        | StorageError::Conflict
+                ));
+                assert!(bytes == old);
+            }
+        }
+        assert!(dir.listing() == [SENTINEL]);
+    }
+    if is_limited {
+        assert_eq!(successes, 0);
+        assert!(
+            size_limit_errors > 0,
+            "expected at least one file-size limit failure"
+        );
+    } else {
+        assert!(successes > 0, "expected at least one verified save");
+    }
+    eprintln!(
+        "permission race (limited={is_limited}): {RACE_ATTEMPTS} attempts, {successes} successful, {write_errors} I/O failures ({size_limit_errors} file-size limits), {refusals} refusals, {post_failures} post-rename failures, 0 corruptions or leftover temp files"
+    );
+}
+
+#[test]
+fn preserves_supplementary_group() {
+    let dir = TempDir::new();
+    let path = dir.path(SENTINEL);
+    fs::write(&path, b"old").unwrap();
+    let primary_gid = fs::metadata(&path).unwrap().gid();
+    let Ok(output) = Command::new("id").arg("-G").output() else {
+        return;
+    };
+    assert!(output.status.success());
+    let Some(gid) = String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .filter_map(|value| value.parse::<u32>().ok())
+        .find(|&gid| gid != primary_gid && gid != 65534)
+    else {
+        eprintln!("skipping supplementary-group fixture: no eligible group");
+        return;
+    };
+    std::os::unix::fs::chown(&path, None, Some(gid)).unwrap();
+    set_mode(&path, 0o640);
+    let destination = resource(&path);
+    let base = GioStorage.read(&destination).unwrap().version;
+    let saved = GioStorage
+        .replace_if_unchanged(&destination, &base, b"new")
+        .unwrap();
+    let identity = saved.identity.unwrap();
+    assert_eq!((identity.mode, identity.gid), (Some(0o640), Some(gid)));
+    assert_eq!(dir.listing(), [SENTINEL]);
+}
+
+#[allow(
+    unsafe_code,
+    reason = "exercise save under umask 000 in an isolated subprocess"
+)]
+fn clear_child_umask() {
+    // SAFETY: Zero is a valid umask and this subprocess owns its process state.
+    unsafe { libc::umask(0) };
 }

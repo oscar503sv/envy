@@ -29,8 +29,9 @@ pub trait DocumentStorage: Send + Sync {
     /// read-only, conditional replacement, atomic replacement (including
     /// multiple hard links), permission preservation, and baseline equality.
     /// Unknown preflight observations block the save. D-19 condition 7 allows
-    /// only the SELinux label and parent directory to be unobservable for a
-    /// single file accessed through the Flatpak portal.
+    /// the SELinux label to be unobservable for any file accessed through the
+    /// Flatpak document portal, and the parent directory only for a single
+    /// exported file.
     ///
     /// Compare the entire baseline (hash, etag, size, mtime, and identity).
     /// Any observed change, including chmod, touch, or rename, is a Conflict.
@@ -38,8 +39,9 @@ pub trait DocumentStorage: Send + Sync {
     ///
     /// Return the new version only after verification. Every error except
     /// PostWriteVerificationFailed guarantees that this call left the stored
-    /// bytes untouched. After PostWriteVerificationFailed, the new bytes are
-    /// on disk and the caller must re-read the baseline.
+    /// bytes untouched. After PostWriteVerificationFailed, the new bytes were
+    /// published, but a concurrent writer may already have replaced them, so
+    /// the caller must re-read the baseline.
     fn replace_if_unchanged(
         &self,
         resource: &ResourceRef,
