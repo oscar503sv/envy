@@ -4,4 +4,6 @@
 //! and on GLib/Gio, but not on the UI.
 
 #[cfg(target_os = "linux")]
+pub mod file_monitor;
+#[cfg(target_os = "linux")]
 pub mod gio_storage;
