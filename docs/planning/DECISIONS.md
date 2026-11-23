@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de decisiones
 
-> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-12**, **D-19**, **D-23**, **D-24**, **D-25**, **D-32** y **D-34** (aprobadas por el usuario; D-12, D-19, D-23, D-24, D-25 y D-34 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
+> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-12**, **D-19**, **D-23**, **D-24**, **D-25**, **D-27**, **D-32** y **D-34** (aprobadas por el usuario; D-12, D-19, D-23, D-24, D-25, D-27 y D-34 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
 > **Regla:** este documento no modifica [`docs/PRD.md`](../PRD.md) ni [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md). Los cambios que esos documentos necesiten se registran como propuestas en la §3 para que el usuario los apruebe y los aplique.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [RISKS](RISKS.md) · [MILESTONES](MILESTONES.md)
 
@@ -87,11 +87,12 @@ Cada decisión indica: contexto, opciones, recomendación, impacto si se retrasa
 - **Resolución propuesta:** no hay contradicción de alcance: la lógica pura (ENV-T020, ENV-T023) se construye en la fase de motor porque la necesitan el pegado y la revisión de conflictos; la UI (ENV-T065, ENV-T066) se construye en la fase Workspace. Requiere solo conformidad del usuario.
 
 <a id="d-27"></a>
-#### D-27 — Semántica de "Guardar como…"
+#### D-27 — Semántica de "Guardar como…" — **RESUELTA**
 - **Contexto:** TD §7.2 dice "guardar copia independiente sin alterar destino conflictivo"; no indica si la sesión pasa a editar el archivo nuevo.
 - **Opciones:** (a) la sesión pasa a apuntar al archivo nuevo (comportamiento habitual en GNOME); (b) la sesión sigue en el original y la copia es un volcado.
 - **Recomendación:** (a), con el original intacto y su conflicto cerrado para esa sesión.
 - **Fecha límite:** S05 (ENV-T030), 2026-12-21 (semana festiva).
+- **RESUELTA (2026-11-22):** opción (a). Tras Guardar como, la sesión pasa a editar el archivo nuevo; el original queda intacto y su conflicto se cierra para esa sesión. La creación del archivo nuevo se añade al puerto `DocumentStorage` como `create_new`, que comparte el `lstat` y el pre-vuelo de ENV-T028 (D-12.3) y se prueba con `FakeStorage`.
 
 <a id="d-28"></a>
 #### D-28 — Diálogo de preferencias
@@ -209,6 +210,9 @@ Resultados:
   2. *Permisos:* verificación posterior de contenido, inodo, modo, uid y gid contra el `lstat` del pre-vuelo; cualquier diferencia ⇒ error visible, nunca éxito. Solo se corrige automáticamente un permiso hacia uno más restrictivo, nunca más permisivo.
   3. *Sin reemplazo atómico:* pre-vuelo obligatorio (archivo regular no symlink, `nlink == 1`, archivo y directorio escribibles, uid propio **y** gid en los grupos del proceso, directorio seguro); si falla, se bloquea Guardar y se ofrece Guardar como. Guardar como pasa por el mismo `lstat` y pre-vuelo.
   - *xattr/ACL/SELinux:* se comparan en la verificación posterior (ACL de acceso y etiqueta SELinux); si cambian, error visible. No se copian en v0.1.
+- **Revisión (2026-11-22, usuario), tras la revisión de seguridad de ENV-T028:** se sustituye la escritura con `gio::File::replace` por una escritura local propia basada en descriptores con `libc` (sin dependencias nuevas). Motivo (hallazgo H-1): si GIO no puede crear su temporal (EMFILE, inodos agotados, cuota, LSM), cae en silencio a truncar el original y escribir en el sitio; un fallo posterior deja el `.env` vacío o parcial sin recuperación, y el pre-vuelo no puede evitarlo. La nueva ruta crea el temporal en el mismo directorio (anclado por descriptor), copia uid/gid/modo, escribe, hace `fsync` y renombra de forma atómica (`renameat`); si algo falla, el original nunca se toca. Se mantienen el pre-vuelo, la comparación de la versión completa y la verificación posterior de 1–3. Gio se sigue usando para lectura, metadatos, monitor y URIs.
+
+- **Revisión (2026-11-22, usuario), tras la re-revisión de ENV-T028; se implementa en ENV-T030:** (a) un ancestro que sea symlink se acepta solo si pertenece a root y está en un directorio de root no escribible por otros (caso de Fedora Atomic, `/home` → `var/home`); cualquier otro ancestro symlink sigue bloqueando el guardado. (b) Al abrir un archivo se borran los temporales propios y antiguos de su carpeta (`^\.envy-[0-9a-f]{16}\.tmp$`, mismo dueño, sin otros enlaces) que dejó una caída o una pérdida de permisos; `O_TMPFILE` + `linkat` queda como mejora a evaluar en ENV-T067 (requiere validar el FUSE del portal).
 
 <a id="d-19"></a>
 #### D-19 — Política de acceso a carpetas en Flatpak — **RESUELTA**
@@ -228,6 +232,7 @@ Resultados:
   8. El xattr `document-portal.host-path` solo se lee en rutas bajo `/run/user/<uid>/doc/`, se relee en cada apertura (no se persiste) y se muestra con caracteres de control y bidi escapados; si falta, se muestra el nombre base.
   9. Mensajes distintos para «la carpeta cambió o se recreó» y «acceso retirado», ambos con «Volver a elegir la carpeta». Aviso antes de guardar como Workspace una carpeta que sea `$HOME` o la raíz de un montaje. «Olvidar carpeta» no promete revocar el acceso del sandbox.
   10. Los URIs recibidos por CLI se rechazan si su esquema no es `file`.
+- **Ampliación de la condición 7 (2026-11-22, usuario), tras la re-revisión de ENV-T028:** la etiqueta SELinux no es observable dentro del sandbox en ninguna ruta del document portal, así que la exención se aplica a todo archivo bajo el portal, también dentro de carpetas compartidas, no solo a archivos sueltos. Limitación documentada: un `.env` de una carpeta compartida con etiqueta propia (p. ej. `container_file_t` con categorías MCS) puede quedar con la etiqueta por defecto del directorio tras guardar desde Flatpak; en el host se sigue rechazando.
 - **Revisión de seguridad (2026-11-22):** veredicto REVIEW, sin hallazgos críticos ni altos. finish-args aprobables tal cual. F2 (caché del FUSE) se descartó con medición; F1 se midió y da las condiciones 6–7; el resto queda recogido en las condiciones 8–10. Detalle en el §4 del [informe](spikes/ENV-T054-flatpak-portals.md).
 
 <a id="d-20"></a>
