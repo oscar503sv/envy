@@ -570,6 +570,7 @@ fn refuses_custom_selinux_label_before_publication() {
 
 const RACE_CHILD: &str = "ENVY_GIO_RACE_TEST_CHILD";
 const RACE_ATTEMPTS: usize = 200;
+const LONG_WINDOW_ATTEMPTS: usize = 40;
 
 #[test]
 fn permission_race_preserves_complete_file_with_and_without_write_limit() {
@@ -617,7 +618,15 @@ fn run_permission_race(is_limited: bool) {
     let stop = AtomicBool::new(false);
     let (mut successes, mut write_errors, mut refusals, mut post_failures) = (0, 0, 0, 0);
     let mut size_limit_errors = 0;
-    for _ in 0..RACE_ATTEMPTS {
+    let attempts = RACE_ATTEMPTS + LONG_WINDOW_ATTEMPTS;
+    for attempt in 0..attempts {
+        // Keep the short races and also exercise a writable window long
+        // enough for descriptor checks, fsync, and verification on slower hosts.
+        let writable_window = if attempt < RACE_ATTEMPTS {
+            std::time::Duration::from_micros(40)
+        } else {
+            std::time::Duration::from_millis(2)
+        };
         set_mode(&dir.0, 0o700);
         fs::write(&path, old).unwrap();
         set_mode(&path, 0o600);
@@ -630,7 +639,7 @@ fn run_permission_race(is_limited: bool) {
                 ready.send(()).unwrap();
                 while !stop_flag.load(Ordering::Relaxed) {
                     set_mode(parent, 0o700);
-                    std::thread::sleep(std::time::Duration::from_micros(40));
+                    std::thread::sleep(writable_window);
                     set_mode(parent, 0o555);
                     std::thread::sleep(std::time::Duration::from_micros(40));
                 }
@@ -683,7 +692,7 @@ fn run_permission_race(is_limited: bool) {
         assert!(successes > 0, "expected at least one verified save");
     }
     eprintln!(
-        "permission race (limited={is_limited}): {RACE_ATTEMPTS} attempts, {successes} successful, {write_errors} I/O failures ({size_limit_errors} file-size limits), {refusals} refusals, {post_failures} post-rename failures, 0 corruptions or leftover temp files"
+        "permission race (limited={is_limited}): {attempts} attempts, {successes} successful, {write_errors} I/O failures ({size_limit_errors} file-size limits), {refusals} refusals, {post_failures} post-rename failures, 0 corruptions or leftover temp files"
     );
 }
 
@@ -724,4 +733,188 @@ fn preserves_supplementary_group() {
 fn clear_child_umask() {
     // SAFETY: Zero is a valid umask and this subprocess owns its process state.
     unsafe { libc::umask(0) };
+}
+
+#[test]
+fn create_new_is_private_and_cleans_staging_under_both_umasks() {
+    const CHILD: &str = "ENVY_TEST_CREATE_UNDER_UMASK";
+    if std::env::var_os(CHILD).is_none() {
+        for mask in ["000", "077"] {
+            let output = Command::new("sh")
+                .args(["-c", "umask \"$1\"; exec \"$2\" --exact create_new_is_private_and_cleans_staging_under_both_umasks", "sh", mask])
+                .arg(std::env::current_exe().unwrap())
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "create-new child failed under the selected umask"
+            );
+        }
+        return;
+    }
+    let dir = TempDir::new();
+    set_mode(&dir.0, 0o700);
+    let path = dir.path(SENTINEL);
+    GioStorage
+        .create_new(&resource(&path), SENTINEL.as_bytes())
+        .unwrap();
+    assert!(fs::read(&path).unwrap() == SENTINEL.as_bytes());
+    assert_eq!(fs::metadata(&path).unwrap().mode() & 0o7777, 0o600);
+    assert!(dir.listing() == [OsStr::new(SENTINEL)]);
+}
+
+fn assert_create_error(
+    result: Result<envy::services::storage::DiskVersion, StorageError>,
+    expected: StorageError,
+) {
+    let Err(error) = result else {
+        panic!("creation unexpectedly succeeded");
+    };
+    assert_eq!(error, expected);
+    assert!(!format!("{error:?} {error}").contains(SENTINEL));
+}
+
+#[test]
+fn create_new_refuses_existing_entries_oversize_and_unsafe_parent() {
+    let dir = TempDir::new();
+    let path = dir.path(SENTINEL);
+    let destination = resource(&path);
+    fs::write(&path, SENTINEL).unwrap();
+    assert_create_error(
+        GioStorage.create_new(&destination, b""),
+        StorageError::AlreadyExists,
+    );
+    assert!(fs::read(&path).unwrap() == SENTINEL.as_bytes());
+    fs::remove_file(&path).unwrap();
+    let target = dir.path("missing");
+    symlink(&target, &path).unwrap();
+    assert_create_error(
+        GioStorage.create_new(&destination, SENTINEL.as_bytes()),
+        StorageError::Symlink,
+    );
+    assert!(!target.exists());
+    fs::remove_file(&path).unwrap();
+    let oversized = vec![0; MAX_FILE_SIZE as usize + 1];
+    assert_create_error(
+        GioStorage.create_new(&destination, &oversized),
+        StorageError::TooLarge,
+    );
+    set_mode(&dir.0, 0o777);
+    assert_create_error(
+        GioStorage.create_new(&destination, SENTINEL.as_bytes()),
+        StorageError::PermissionsNotPreserved,
+    );
+    assert!(dir.listing().is_empty());
+}
+
+#[test]
+fn create_new_refuses_default_acl() {
+    let dir = TempDir::new();
+    if !Command::new("setfacl")
+        .args(["-m", "d:u:12345:rwx"])
+        .arg(&dir.0)
+        .output()
+        .is_ok_and(|output| output.status.success())
+    {
+        eprintln!("skipping ACL fixture: setfacl or filesystem ACL support unavailable");
+        return;
+    }
+    assert_create_error(
+        GioStorage.create_new(&resource(&dir.path(SENTINEL)), SENTINEL.as_bytes()),
+        StorageError::PermissionsNotPreserved,
+    );
+    assert!(dir.listing().is_empty());
+}
+
+#[test]
+fn create_new_never_overwrites_a_racing_creator() {
+    let dir = TempDir::new();
+    let ours = SENTINEL.repeat(8192);
+    for attempt in 0..12 {
+        let path = dir.path(&format!("file-{attempt}"));
+        let destination = resource(&path);
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let competitor = scope.spawn(|| {
+                barrier.wait();
+                if attempt % 2 == 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                use std::io::Write;
+                let mut file = OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .open(&path)?;
+                file.write_all(SENTINEL.as_bytes())
+            });
+            barrier.wait();
+            let result = GioStorage.create_new(&destination, ours.as_bytes());
+            match competitor.join().unwrap() {
+                Ok(()) => {
+                    assert_create_error(result, StorageError::AlreadyExists);
+                    assert!(fs::read(&path).unwrap() == SENTINEL.as_bytes());
+                }
+                Err(error) => {
+                    assert_eq!(error.kind(), ErrorKind::AlreadyExists);
+                    assert!(result.is_ok());
+                    assert!(fs::read(&path).unwrap() == ours.as_bytes());
+                }
+            }
+        });
+    }
+    assert_eq!(dir.listing().len(), 12);
+}
+
+#[test]
+fn stale_staging_cleanup_only_removes_old_single_link_regular_files() {
+    let dir = TempDir::new();
+    let document = dir.path(SENTINEL);
+    let old = dir.path(".envy-0123456789abcdef.tmp");
+    let young = dir.path(".envy-1123456789abcdef.tmp");
+    let link = dir.path(".envy-2123456789abcdef.tmp");
+    let linked = dir.path(".envy-3123456789abcdef.tmp");
+    let other = dir.path(".envy-0123456789abcdeF.tmp");
+    for path in [&document, &old, &young, &linked, &other] {
+        fs::write(path, SENTINEL).unwrap();
+    }
+    for path in [&document, &old, &linked, &other] {
+        fs::File::open(path)
+            .unwrap()
+            .set_modified(std::time::UNIX_EPOCH)
+            .unwrap();
+    }
+    fs::hard_link(&linked, dir.path("other-link")).unwrap();
+    symlink(&document, &link).unwrap();
+    GioStorage.remove_stale_staging(&resource(&document));
+    assert!(!old.exists());
+    for path in [&document, &young, &linked, &other] {
+        assert!(fs::read(path).unwrap() == SENTINEL.as_bytes());
+    }
+    assert!(link.symlink_metadata().unwrap().is_symlink());
+}
+
+#[test]
+fn stale_staging_cleanup_removes_leftover_link_to_the_document_only() {
+    let dir = TempDir::new();
+    let document = dir.path(SENTINEL);
+    let leftover = dir.path(".envy-4123456789abcdef.tmp");
+    let foreign = dir.path(".envy-5123456789abcdef.tmp");
+    fs::write(&document, SENTINEL).unwrap();
+    fs::write(dir.path("unrelated"), SENTINEL).unwrap();
+    fs::File::open(&document)
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH)
+        .unwrap();
+    fs::File::open(dir.path("unrelated"))
+        .unwrap()
+        .set_modified(std::time::UNIX_EPOCH)
+        .unwrap();
+    fs::hard_link(&document, &leftover).unwrap();
+    fs::hard_link(dir.path("unrelated"), &foreign).unwrap();
+    GioStorage.remove_stale_staging(&resource(&document));
+    assert!(!leftover.exists());
+    assert!(foreign.exists());
+    assert!(fs::read(&document).unwrap() == SENTINEL.as_bytes());
+    assert_eq!(fs::metadata(&document).unwrap().nlink(), 1);
 }

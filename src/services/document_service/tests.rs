@@ -215,15 +215,14 @@ fn save_as_adopts_independent_copy_and_preserves_original() {
         let before = bytes(&session);
         let original_snapshot = storage.read(&original).unwrap();
         let destination = ResourceRef::from_uri("copy");
-        let copy = snapshot_from_bytes(before.clone());
-        storage
-            .set_snapshot(&destination, Some(copy.clone()))
-            .unwrap();
-        session
-            .complete_save_as(destination.clone(), copy.clone())
-            .unwrap();
+        assert_eq!(
+            session.save_as(destination.clone(), SaveAsTarget::New),
+            Ok(SaveOutcome::Saved)
+        );
         assert!(session.resource() == &destination);
+        let copy = storage.read(&destination).unwrap();
         assert!(session.baseline() == &copy.version);
+        assert!(copy.bytes.expose() == &before);
         assert!(storage.read(&original).unwrap() == original_snapshot);
         assert!(bytes(&session) == before);
         assert!(!session.is_dirty() && !session.is_conflicted());
@@ -349,13 +348,7 @@ fn events_preserve_unsaved_bytes_except_edits_and_confirmed_discard() {
             assert!(!s.reload_if_clean().unwrap());
         },
         |_, s| {
-            assert!(
-                s.complete_save_as(
-                    ResourceRef::from_uri("stale"),
-                    snapshot_from_bytes(EXTERNAL.to_vec())
-                )
-                .is_err()
-            );
+            assert!(s.save_as(s.resource().clone(), SaveAsTarget::New).is_err());
         },
         |disk, s| {
             disk.set_snapshot(s.resource(), None).unwrap();
@@ -542,21 +535,56 @@ fn identity_warning_requires_reviewed_overwrite_and_content_warning_can_retry() 
 }
 
 #[test]
-fn save_as_rejects_forged_hash_and_only_valid_completion_clears_warning() {
-    let (_, mut session) = open();
+fn save_as_rejects_existing_name_and_inode_alias_then_accepts_distinct_destination() {
+    let (storage, mut session) = open();
     edit(&mut session);
     session.permission_warning = Some(PostWriteFailure::Mode);
+    let original = session.resource().clone();
     let destination = ResourceRef::from_uri("copy");
-    let copy = snapshot_from_bytes(EDITED.to_vec());
-    let mut forged = copy.clone();
-    forged.version.hash = Redacted::new(content_hash(ORIGINAL));
+    let alias = storage.read(&original).unwrap();
+    storage
+        .set_snapshot(&destination, Some(alias.clone()))
+        .unwrap();
     assert_eq!(
-        session.complete_save_as(destination.clone(), forged),
+        session.save_as(destination.clone(), SaveAsTarget::New),
+        Err(StorageError::AlreadyExists.into())
+    );
+    assert_eq!(
+        session.save_as(destination.clone(), SaveAsTarget::ReplaceExisting),
         Err(SessionError::InvalidSaveAs)
     );
     assert_eq!(session.permission_warning(), Some(PostWriteFailure::Mode));
-    session.complete_save_as(destination, copy).unwrap();
+    assert!(session.resource() == &original);
+    assert!(session.is_dirty() && session.can_undo());
+    let mut distinct = alias.clone();
+    distinct.version.identity.as_mut().unwrap().device_and_inode = Some((1, 42));
+    storage.set_snapshot(&destination, Some(distinct)).unwrap();
+    assert_eq!(
+        session.save_as(destination.clone(), SaveAsTarget::ReplaceExisting),
+        Ok(SaveOutcome::Saved)
+    );
+    assert!(session.resource() == &destination);
+    assert!(storage.read(&original).unwrap() == alias);
+    assert!(storage.read(&destination).unwrap().bytes.expose() == &bytes(&session));
     assert_eq!(session.permission_warning(), None);
+}
+
+#[test]
+fn save_as_replace_rejects_destination_with_unknown_identity() {
+    let (storage, mut session) = open();
+    edit(&mut session);
+    let original = session.resource().clone();
+    let destination = ResourceRef::from_uri("unknown");
+    let mut unknown = storage.read(&original).unwrap();
+    unknown.version.identity = None;
+    storage.set_snapshot(&destination, Some(unknown)).unwrap();
+    assert_eq!(
+        session.save_as(destination.clone(), SaveAsTarget::ReplaceExisting),
+        Err(SessionError::InvalidSaveAs)
+    );
+    assert!(session.resource() == &original);
+    assert!(session.is_dirty() && session.can_undo());
+    assert_eq!(storage.replace_calls(), 0);
 }
 
 #[test]
@@ -631,4 +659,142 @@ fn clean_reload_requires_explicit_action_for_each_blocker() {
         assert!(bytes(&session) == EXTERNAL);
         assert_eq!(session.permission_warning(), permission_warning);
     }
+}
+
+#[test]
+fn save_routes_missing_guarantees_to_save_as_without_losing_edits() {
+    for (reason, advisory) in [
+        (StorageError::ConditionalReplaceUnsupported, true),
+        (StorageError::AtomicReplaceUnsupported, true),
+        (StorageError::PermissionsNotPreserved, true),
+        (StorageError::PermissionsNotPreserved, false),
+    ] {
+        let (storage, mut session) = open();
+        edit(&mut session);
+        let mut settings = FakeSettings::default();
+        match (reason, advisory) {
+            (StorageError::ConditionalReplaceUnsupported, true) => {
+                settings.capabilities.supports_conditional_replace = false;
+            }
+            (StorageError::AtomicReplaceUnsupported, true) => {
+                settings.capabilities.supports_atomic_replace = false;
+            }
+            (StorageError::PermissionsNotPreserved, true) => {
+                settings.capabilities.can_preserve_permissions = false;
+            }
+            _ => settings.write_error = Some(reason),
+        }
+        storage.configure(session.resource(), settings).unwrap();
+        let error = session.save().unwrap_err();
+        assert_eq!(error, SessionError::SaveAsRequired { reason });
+        assert!(!format!("{error:?} {error}").contains(SENTINEL));
+        assert_eq!(storage.replace_calls(), usize::from(!advisory));
+        assert!(session.is_dirty() && session.can_undo());
+        assert!(bytes(&session) == EDITED);
+        assert!(storage.read(session.resource()).unwrap().bytes.expose() == ORIGINAL);
+    }
+}
+
+#[test]
+fn save_as_switches_to_published_file_even_when_verification_fails() {
+    let (storage, mut session) = open();
+    edit(&mut session);
+    let original = session.resource().clone();
+    let destination = ResourceRef::from_uri(format!("{SENTINEL}-copy"));
+    let reason = PostWriteFailure::Mode;
+    storage
+        .configure(
+            &destination,
+            FakeSettings {
+                create_error: Some(StorageError::PostWriteVerificationFailed { reason }),
+                ..FakeSettings::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        session.save_as(destination.clone(), SaveAsTarget::New),
+        Ok(SaveOutcome::WrittenWithWarning {
+            reason,
+            baseline_recovered: true,
+            recovery_error: None
+        })
+    );
+    assert!(session.resource() == &destination);
+    assert!(storage.read(&destination).unwrap().bytes.expose() == EDITED);
+    assert!(storage.read(&original).unwrap().bytes.expose() == ORIGINAL);
+    assert!(session.is_dirty() && session.can_undo());
+    assert_eq!(session.permission_warning(), Some(reason));
+}
+
+#[test]
+fn staging_cleanup_is_once_per_successful_open() {
+    let (storage, mut session) = open_with(b"A=\xff");
+    assert_eq!(storage.cleanup_calls(), 1);
+    session.refresh_external().unwrap();
+    assert_eq!(storage.cleanup_calls(), 1);
+    assert_eq!(
+        session.save_as(ResourceRef::from_uri(SENTINEL), SaveAsTarget::New),
+        Err(SessionError::Protected)
+    );
+}
+
+#[test]
+fn save_as_prepublication_failures_keep_original_and_conflict() {
+    for failure in [
+        failure_for_test(),
+        StorageError::PermissionsNotPreserved,
+        StorageError::TooLarge,
+    ] {
+        let (storage, mut session) = open();
+        edit(&mut session);
+        let original = session.resource().clone();
+        let external = change(&storage, &session, EXTERNAL);
+        session.observe_external(Ok(external.clone())).unwrap();
+        let baseline = session.baseline().clone();
+        let destination = ResourceRef::from_uri(format!("{SENTINEL}-destination"));
+        let mut settings = FakeSettings::default();
+        if failure == StorageError::TooLarge {
+            settings.max_file_size = 1;
+        } else {
+            settings.create_error = Some(failure);
+        }
+        storage.configure(&destination, settings).unwrap();
+
+        let error = session
+            .save_as(destination.clone(), SaveAsTarget::New)
+            .unwrap_err();
+        assert_eq!(error, failure.into());
+        assert!(!format!("{error:?} {error}").contains(SENTINEL));
+        assert!(session.resource() == &original);
+        assert!(session.baseline() == &baseline);
+        assert!(session.external_snapshot() == Some(&external));
+        assert!(session.is_conflicted() && session.is_dirty() && session.can_undo());
+        assert!(bytes(&session) == EDITED);
+        assert!(storage.read(&original).unwrap() == external);
+        assert_eq!(storage.read(&destination), Err(StorageError::NotFound));
+    }
+}
+
+#[test]
+fn save_as_rejects_alias_of_original_after_external_replacement() {
+    let (storage, mut session) = open();
+    edit(&mut session);
+    let original = session.resource().clone();
+    let destination = ResourceRef::from_uri(format!("{SENTINEL}-alias"));
+    let mut external = snapshot_from_bytes(EXTERNAL.to_vec());
+    external.version.identity.as_mut().unwrap().device_and_inode = Some((1, 99));
+    storage
+        .set_snapshot(&original, Some(external.clone()))
+        .unwrap();
+    storage
+        .set_snapshot(&destination, Some(external.clone()))
+        .unwrap();
+    assert_eq!(
+        session.save_as(destination, SaveAsTarget::ReplaceExisting),
+        Err(SessionError::InvalidSaveAs)
+    );
+    assert_eq!(storage.replace_calls(), 0);
+    assert!(storage.read(&original).unwrap() == external);
+    assert!(session.resource() == &original);
+    assert!(session.is_dirty());
 }

@@ -48,6 +48,20 @@ pub trait DocumentStorage: Send + Sync {
         expected: &DiskVersion,
         content: &[u8],
     ) -> Result<DiskVersion, StorageError>;
+
+    /// Create a private file (0600, owned by the effective user, group assigned
+    /// by the directory). Apply the same parent safety and size limits as replace.
+    /// Never follow or overwrite the destination. A symlink yields Symlink;
+    /// any other existing entry yields AlreadyExists. Except for
+    /// PostWriteVerificationFailed, errors leave no file published by this call.
+    fn create_new(
+        &self,
+        resource: &ResourceRef,
+        content: &[u8],
+    ) -> Result<DiskVersion, StorageError>;
+
+    /// Best-effort cleanup of abandoned staging files alongside the resource.
+    fn remove_stale_staging(&self, resource: &ResourceRef);
 }
 
 /// Opaque resource identity. The caller supplies the resolved URI where
@@ -158,6 +172,8 @@ pub struct StorageCapabilities {
 pub enum StorageError {
     #[error("file not found")]
     NotFound,
+    #[error("destination already exists")]
+    AlreadyExists,
     #[error("permission denied")]
     PermissionDenied,
     #[error("resource is not a regular file")]

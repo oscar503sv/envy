@@ -12,7 +12,7 @@ use crate::domain::{
 
 use super::storage::{
     DiskVersion, DocumentStorage, PostWriteFailure, ReadSnapshot, ResourceRef, StorageCapabilities,
-    StorageError, content_hash,
+    StorageError,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -33,8 +33,17 @@ pub enum SessionError {
     BaselineUnavailable,
     #[error("the post-write warning must be acknowledged before saving")]
     PostWriteWarningUnacknowledged,
-    #[error("save-as completion does not match the current document or destination")]
+    #[error("save as is required: {reason}")]
+    SaveAsRequired { reason: StorageError },
+    #[error("save-as destination refers to the current document")]
     InvalidSaveAs,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SaveAsTarget {
+    New,
+    /// The file chooser confirmed replacing this destination.
+    ReplaceExisting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +118,7 @@ impl DocumentSession {
         resource: ResourceRef,
     ) -> Result<Self, SessionError> {
         let snapshot = storage.read(&resource)?;
+        storage.remove_stale_staging(&resource);
         let capabilities = storage.capabilities(&resource);
         let content = Self::load_content(snapshot.bytes)?;
         Ok(Self {
@@ -374,7 +384,7 @@ impl DocumentSession {
         self.last_observation_error = None;
     }
 
-    fn ensure_save_allowed(&self) -> Result<(), SessionError> {
+    fn ensure_save_allowed(&mut self) -> Result<(), SessionError> {
         self.ensure_idle()?;
         if self.permission_warning.is_some() {
             return Err(SessionError::PostWriteWarningUnacknowledged);
@@ -382,6 +392,7 @@ impl DocumentSession {
         if self.is_missing {
             return Err(StorageError::NotFound.into());
         }
+        self.capabilities = self.storage.capabilities(&self.resource);
         if self.is_read_only() {
             return Err(StorageError::ReadOnly.into());
         }
@@ -435,6 +446,19 @@ impl DocumentSession {
     }
 
     fn persist(&mut self, expected: &DiskVersion) -> Result<SaveOutcome, SessionError> {
+        let capabilities = self.capabilities;
+        let reason = if !capabilities.supports_conditional_replace {
+            Some(StorageError::ConditionalReplaceUnsupported)
+        } else if !capabilities.supports_atomic_replace {
+            Some(StorageError::AtomicReplaceUnsupported)
+        } else if !capabilities.can_preserve_permissions {
+            Some(StorageError::PermissionsNotPreserved)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            return Err(SessionError::SaveAsRequired { reason });
+        }
         let document = self.document().ok_or(SessionError::Protected)?;
         document
             .check_invariants()
@@ -462,6 +486,11 @@ impl DocumentSession {
                 self.is_conflicted = self.refresh_external().is_ok() && self.external.is_some();
                 Err(StorageError::Conflict.into())
             }
+            Err(
+                reason @ (StorageError::ConditionalReplaceUnsupported
+                | StorageError::AtomicReplaceUnsupported
+                | StorageError::PermissionsNotPreserved),
+            ) => Err(SessionError::SaveAsRequired { reason }),
             Err(error) => {
                 self.capabilities = self.storage.capabilities(&self.resource);
                 Err(self.record_storage_error(error).into())
@@ -514,30 +543,72 @@ impl DocumentSession {
         }
     }
 
-    /// Complete Save As after a caller creates and verifies a distinct copy.
-    /// The current port cannot create files. Equal bytes guard against
-    /// adopting a stale result after another local edit. History is retained.
-    pub fn complete_save_as(
+    pub fn save_as(
         &mut self,
-        resource: ResourceRef,
-        snapshot: ReadSnapshot,
-    ) -> Result<(), SessionError> {
+        destination: ResourceRef,
+        target: SaveAsTarget,
+    ) -> Result<SaveOutcome, SessionError> {
         self.ensure_idle()?;
         let document = self.document().ok_or(SessionError::Protected)?;
         document
             .check_invariants()
             .map_err(|_| SessionError::InvalidDocument)?;
-        if resource == self.resource
-            || document.serialize() != *snapshot.bytes.expose()
-            || snapshot.version.hash.expose() != &content_hash(snapshot.bytes.expose())
-        {
+        if destination == self.resource {
             return Err(SessionError::InvalidSaveAs);
         }
-        self.resource = resource;
-        self.permission_warning = None;
-        self.accept_version(snapshot.version);
-        self.editable_history()?.mark_saved();
-        Ok(())
+        let bytes = document.serialize();
+        let result = {
+            self.is_saving = true;
+            let _saving = SaveGuard(&mut self.is_saving);
+            match target {
+                SaveAsTarget::New => self.storage.create_new(&destination, &bytes),
+                SaveAsTarget::ReplaceExisting => {
+                    let version = self.storage.read(&destination)?.version;
+                    let inode = |version: &DiskVersion| {
+                        version
+                            .identity
+                            .as_ref()
+                            .and_then(|identity| identity.device_and_inode)
+                    };
+                    // Without a known identity the destination could alias the
+                    // original and bypass its conflict detection.
+                    let Some(destination_inode) = inode(&version) else {
+                        return Err(SessionError::InvalidSaveAs);
+                    };
+                    if inode(&self.baseline) == Some(destination_inode)
+                        || self
+                            .storage
+                            .read(&self.resource)
+                            .ok()
+                            .is_some_and(|snapshot| {
+                                inode(&snapshot.version) == Some(destination_inode)
+                            })
+                    {
+                        return Err(SessionError::InvalidSaveAs);
+                    }
+                    self.storage
+                        .replace_if_unchanged(&destination, &version, &bytes)
+                }
+            }
+        };
+        match result {
+            Ok(version) => {
+                self.resource = destination;
+                self.permission_warning = None;
+                self.accept_version(version);
+                self.editable_history()?.mark_saved();
+                Ok(SaveOutcome::Saved)
+            }
+            Err(StorageError::PostWriteVerificationFailed { reason }) => {
+                self.resource = destination;
+                self.permission_warning = None;
+                self.is_missing = false;
+                self.last_observation_error = None;
+                self.capabilities = self.storage.capabilities(&self.resource);
+                Ok(self.recover_written_version(&bytes, reason))
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 }
 

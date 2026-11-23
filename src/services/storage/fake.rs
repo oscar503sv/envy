@@ -4,7 +4,10 @@
 use std::{
     collections::HashMap,
     io,
-    sync::{Mutex, MutexGuard},
+    sync::{
+        Mutex, MutexGuard,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    },
 };
 
 use super::{
@@ -13,6 +16,7 @@ use super::{
 };
 use crate::domain::redact::Redacted;
 
+const GENERATED_INODE_START: u64 = 1 << 63;
 const OVERFLOW_GID: u32 = 65_534;
 const FILE_TYPE_MASK: u32 = 0o170000;
 const REGULAR_FILE_TYPE: u32 = 0o100000;
@@ -48,6 +52,8 @@ pub fn snapshot_from_bytes(bytes: Vec<u8>) -> ReadSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FakeSettings {
     pub capabilities: StorageCapabilities,
+    pub max_file_size: u64,
+    pub create_error: Option<StorageError>,
     pub read_error: Option<StorageError>,
     pub write_error: Option<StorageError>,
     pub post_write_failure: Option<PostWriteFailure>,
@@ -64,6 +70,8 @@ impl Default for FakeSettings {
                 can_preserve_permissions: true,
                 is_writable: true,
             },
+            max_file_size: 8 * 1024 * 1024,
+            create_error: None,
             read_error: None,
             write_error: None,
             post_write_failure: None,
@@ -82,6 +90,9 @@ struct Entry {
 #[derive(Default)]
 pub struct FakeStorage {
     entries: Mutex<HashMap<ResourceRef, Entry>>,
+    cleanup_calls: AtomicUsize,
+    replace_calls: AtomicUsize,
+    generated_inodes: AtomicU64,
 }
 
 impl FakeStorage {
@@ -109,6 +120,18 @@ impl FakeStorage {
             .or_default()
             .settings = settings;
         Ok(())
+    }
+
+    pub fn cleanup_calls(&self) -> usize {
+        self.cleanup_calls.load(Ordering::Relaxed)
+    }
+
+    pub fn replace_calls(&self) -> usize {
+        self.replace_calls.load(Ordering::Relaxed)
+    }
+
+    fn next_inode(&self) -> u64 {
+        GENERATED_INODE_START + self.generated_inodes.fetch_add(1, Ordering::Relaxed)
     }
 
     fn entries(&self) -> Result<MutexGuard<'_, HashMap<ResourceRef, Entry>>, StorageError> {
@@ -180,6 +203,9 @@ impl DocumentStorage for FakeStorage {
             return Err(pre_write_error(error));
         }
         check_regular(snapshot)?;
+        if snapshot.version.size > entry.settings.max_file_size {
+            return Err(StorageError::TooLarge);
+        }
         Ok(snapshot.clone())
     }
 
@@ -195,6 +221,51 @@ impl DocumentStorage for FakeStorage {
             .unwrap_or_default()
     }
 
+    fn create_new(
+        &self,
+        resource: &ResourceRef,
+        content: &[u8],
+    ) -> Result<DiskVersion, StorageError> {
+        let mut entries = self.entries()?;
+        let entry = entries.entry(resource.clone()).or_default();
+        if let Some(current) = &entry.snapshot {
+            return Err(
+                if current
+                    .version
+                    .identity
+                    .as_ref()
+                    .is_some_and(|identity| identity.is_symlink == Some(true))
+                {
+                    StorageError::Symlink
+                } else {
+                    StorageError::AlreadyExists
+                },
+            );
+        }
+        if content.len() as u64 > entry.settings.max_file_size {
+            return Err(StorageError::TooLarge);
+        }
+        let post_write_failure = match entry.settings.create_error {
+            Some(StorageError::PostWriteVerificationFailed { reason }) => Some(reason),
+            Some(error) => return Err(error),
+            None => entry.settings.post_write_failure,
+        };
+        let mut snapshot = snapshot_from_bytes(content.to_vec());
+        if let Some(identity) = &mut snapshot.version.identity {
+            identity.device_and_inode = Some((2, self.next_inode()));
+        }
+        let version = snapshot.version.clone();
+        entry.snapshot = Some(snapshot);
+        if let Some(reason) = post_write_failure {
+            return Err(StorageError::PostWriteVerificationFailed { reason });
+        }
+        Ok(version)
+    }
+
+    fn remove_stale_staging(&self, _resource: &ResourceRef) {
+        self.cleanup_calls.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn replace_if_unchanged(
         &self,
         resource: &ResourceRef,
@@ -202,6 +273,7 @@ impl DocumentStorage for FakeStorage {
         content: &[u8],
     ) -> Result<DiskVersion, StorageError> {
         let mut entries = self.entries()?;
+        self.replace_calls.fetch_add(1, Ordering::Relaxed);
         let entry = entries.get_mut(resource).ok_or(StorageError::Conflict)?;
         let current = entry.snapshot.as_ref().ok_or(StorageError::Conflict)?;
         check_regular(current)?;
@@ -232,12 +304,27 @@ impl DocumentStorage for FakeStorage {
         if !capabilities.can_preserve_permissions {
             return Err(StorageError::PermissionsNotPreserved);
         }
-        let (device, inode) = check_identity(
+        let (device, _) = check_identity(
             current.version.identity.as_ref(),
             entry.settings.is_portal_file,
         )?;
+        if current.version.size > entry.settings.max_file_size {
+            return Err(StorageError::TooLarge);
+        }
         if &current.version != expected {
             return Err(StorageError::Conflict);
+        }
+        if content.len() as u64 > entry.settings.max_file_size {
+            return Err(StorageError::TooLarge);
+        }
+        if !entry.settings.is_portal_file
+            && current
+                .version
+                .identity
+                .as_ref()
+                .is_some_and(|identity| matches!(identity.selinux_label, Some(Some(_))))
+        {
+            return Err(StorageError::PermissionsNotPreserved);
         }
         if let Some(error) = entry.settings.write_error {
             return Err(pre_write_error(error));
@@ -249,7 +336,7 @@ impl DocumentStorage for FakeStorage {
         // Model rename with a new inode. Etag and mtime intentionally stay
         // unchanged, since a provider can return the same values after a save.
         if let Some(identity) = &mut version.identity {
-            identity.device_and_inode = Some((device, inode.wrapping_add(1)));
+            identity.device_and_inode = Some((device, self.next_inode()));
         }
         entry.snapshot = Some(ReadSnapshot::new(content.to_vec(), version.clone()));
         if let Some(reason) = entry.settings.post_write_failure {

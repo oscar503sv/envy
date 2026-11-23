@@ -25,6 +25,8 @@ use crate::{
     },
 };
 
+mod staging;
+
 /// The lower end of the approved range limits downstream parser memory amplification.
 pub const MAX_FILE_SIZE: u64 = 8 * 1024 * 1024;
 
@@ -46,7 +48,7 @@ impl DocumentStorage for GioStorage {
     fn read(&self, resource: &ResourceRef) -> Result<ReadSnapshot, StorageError> {
         let (file, path) = resolve(resource)?;
         let info = query(&file, FILE_ATTRIBUTES)?;
-        read_snapshot(&file, &path, &info).map(|(snapshot, _)| snapshot)
+        read_snapshot(&file, &path, &info, None).map(|(snapshot, _)| snapshot)
     }
 
     /// Advisory only. The save repeats preflight, including the bounded read.
@@ -54,6 +56,18 @@ impl DocumentStorage for GioStorage {
         let mut capabilities = StorageCapabilities::default();
         let _ = preflight(resource, &mut capabilities);
         capabilities
+    }
+
+    fn create_new(
+        &self,
+        resource: &ResourceRef,
+        content: &[u8],
+    ) -> Result<DiskVersion, StorageError> {
+        staging::create_new(resource, content)
+    }
+
+    fn remove_stale_staging(&self, resource: &ResourceRef) {
+        staging::remove_stale_staging(resource);
     }
 
     /// Best-effort change detection. Another writer can still race the final
@@ -147,17 +161,7 @@ fn preflight(
     if uint32(&info, "unix::nlink") != Some(1) {
         return Err(StorageError::AtomicReplaceUnsupported);
     }
-    let parent_access = query(
-        &gio::File::for_path(parent),
-        "access::can-write,access::can-execute,unix::mode",
-    )
-    .map_err(|_| StorageError::AtomicReplaceUnsupported)?;
-    if !parent_access.boolean("access::can-write")
-        || !parent_access.boolean("access::can-execute")
-        || permission_mode(&parent_access).is_none_or(|mode| mode & WRITE_BITS == 0)
-    {
-        return Err(StorageError::AtomicReplaceUnsupported);
-    }
+    check_parent_access(parent)?;
 
     let (uid, egid) = effective_ids();
     if uint32(&info, "unix::uid") != Some(uid)
@@ -167,34 +171,17 @@ fn preflight(
         return Err(StorageError::PermissionsNotPreserved);
     }
 
-    let validated_parent =
-        safe_ancestors(parent, uid).ok_or(StorageError::PermissionsNotPreserved)?;
-    let directory = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(parent)
-        .map_err(|_| StorageError::PermissionsNotPreserved)?;
+    let directory = pin_parent(parent, uid)?;
     let directory_metadata = directory.metadata().map_err(map_io)?;
-    if inode(&validated_parent) != inode(&directory_metadata)
-        || !safe_directory(&directory_metadata, uid)
-    {
-        return Err(StorageError::PermissionsNotPreserved);
-    }
 
     let (snapshot, checked_base) =
-        read_snapshot(&file, &path, &info).map_err(missing_is_conflict)?;
+        read_snapshot(&file, &path, &info, Some(&directory)).map_err(missing_is_conflict)?;
     let version = snapshot.version;
     let identity = version
         .identity
         .as_ref()
         .ok_or(StorageError::PermissionsNotPreserved)?;
-    let name = path
-        .file_name()
-        .filter(|name| !name.as_bytes().contains(&b'/'))
-        .and_then(|name| CString::new(name.as_bytes()).ok())
-        .ok_or(StorageError::Io {
-            kind: io::ErrorKind::InvalidInput,
-        })?;
+    let name = basename(&path)?;
     let pinned = open_relative(
         &directory,
         &name,
@@ -245,21 +232,116 @@ fn preflight(
     })
 }
 
-// lstat each ancestor, returning the exact parent identity that passed the check.
-fn safe_ancestors(parent: &Path, uid: u32) -> Option<Metadata> {
-    for path in parent
-        .ancestors()
-        .skip(1)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
+fn basename(path: &Path) -> Result<CString, StorageError> {
+    path.file_name()
+        .filter(|name| !name.as_bytes().contains(&b'/'))
+        .and_then(|name| CString::new(name.as_bytes()).ok())
+        .ok_or(StorageError::Io {
+            kind: io::ErrorKind::InvalidInput,
+        })
+}
+
+fn check_parent_access(parent: &Path) -> Result<(), StorageError> {
+    let (resolved, _) =
+        safe_ancestors(parent, effective_ids().0).ok_or(StorageError::PermissionsNotPreserved)?;
+    let parent_access = query(
+        &gio::File::for_path(resolved),
+        "access::can-write,access::can-execute,unix::mode",
+    )
+    .map_err(|_| StorageError::AtomicReplaceUnsupported)?;
+    if !parent_access.boolean("access::can-write")
+        || !parent_access.boolean("access::can-execute")
+        || permission_mode(&parent_access).is_none_or(|mode| mode & WRITE_BITS == 0)
     {
-        if !safe_directory(&path.symlink_metadata().ok()?, uid) {
+        return Err(StorageError::AtomicReplaceUnsupported);
+    }
+
+    Ok(())
+}
+
+fn pin_parent(parent: &Path, uid: u32) -> Result<File, StorageError> {
+    let (resolved, validated) =
+        safe_ancestors(parent, uid).ok_or(StorageError::PermissionsNotPreserved)?;
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&resolved)
+        .map_err(|_| StorageError::PermissionsNotPreserved)?;
+    let metadata = directory.metadata().map_err(map_io)?;
+    if inode(&validated) != inode(&metadata) || !safe_directory(&metadata, uid) {
+        return Err(StorageError::PermissionsNotPreserved);
+    }
+    if parent != resolved && inode(&parent.metadata().map_err(map_io)?) != inode(&metadata) {
+        return Err(StorageError::PermissionsNotPreserved);
+    }
+    Ok(directory)
+}
+
+fn trusted_ancestor_symlink(link_uid: u32, parent_uid: u32, parent_mode: u32) -> bool {
+    link_uid == 0 && parent_uid == 0 && parent_mode & 0o022 == 0
+}
+
+fn safe_ancestors(parent: &Path, uid: u32) -> Option<(PathBuf, Metadata)> {
+    let mut resolved = PathBuf::from("/");
+    let mut info = resolved.symlink_metadata().ok()?;
+    let mut links_left = 40;
+    if !parent.is_absolute() || !safe_directory(&info, uid) {
+        return None;
+    }
+    resolve_safe_components(parent, uid, &mut resolved, &mut info, &mut links_left)?;
+    Some((resolved, info))
+}
+
+fn resolve_safe_components(
+    path: &Path,
+    uid: u32,
+    resolved: &mut PathBuf,
+    info: &mut Metadata,
+    links_left: &mut u32,
+) -> Option<()> {
+    use std::path::Component;
+
+    for component in path.components() {
+        match component {
+            Component::RootDir => {
+                *resolved = PathBuf::from("/");
+            }
+            Component::ParentDir => {
+                resolved.pop();
+            }
+            Component::Normal(name) => {
+                let next = resolved.join(name);
+                let metadata = next.symlink_metadata().ok()?;
+                if metadata.is_symlink() {
+                    if !trusted_ancestor_symlink(metadata.uid(), info.uid(), info.mode()) {
+                        return None;
+                    }
+                    *links_left = links_left.checked_sub(1)?;
+                    resolve_safe_components(
+                        &next.read_link().ok()?,
+                        uid,
+                        resolved,
+                        info,
+                        links_left,
+                    )?;
+                    continue;
+                }
+                if !safe_directory(&metadata, uid) {
+                    return None;
+                }
+                *info = metadata;
+                *resolved = next;
+                continue;
+            }
+            Component::CurDir => continue,
+            Component::Prefix(_) => return None,
+        }
+        *info = resolved.symlink_metadata().ok()?;
+        if !safe_directory(info, uid) {
             return None;
         }
     }
-    let info = parent.symlink_metadata().ok()?;
-    safe_directory(&info, uid).then_some(info)
+    Some(())
 }
 
 fn safe_directory(info: &Metadata, uid: u32) -> bool {
@@ -316,9 +398,10 @@ fn read_snapshot(
     file: &gio::File,
     path: &Path,
     info: &FileInfo,
+    prepared_parent: Option<&File>,
 ) -> Result<(ReadSnapshot, Metadata), StorageError> {
     let size = checked_size(info)?;
-    let mut identity = file_identity(info, path, None);
+    let mut identity = file_identity(info, path, None, None);
     if info.has_attribute("access::can-read") && !info.boolean("access::can-read") {
         return Err(StorageError::PermissionDenied);
     }
@@ -345,7 +428,15 @@ fn read_snapshot(
         .open(format!("/proc/self/fd/{}", pinned.as_raw_fd()))
         .map_err(|error| StorageError::Io { kind: error.kind() })?;
     verify_descriptor(&stream.metadata().map_err(map_io)?, &identity, size)?;
-    identity = file_identity(info, path, Some(&stream));
+    let uid = effective_ids().0;
+    let opened_parent = if prepared_parent.is_none() {
+        path.parent()
+            .and_then(|parent| pin_parent(parent, uid).ok())
+    } else {
+        None
+    };
+    let parent = prepared_parent.or(opened_parent.as_ref());
+    identity = file_identity(info, path, Some(&stream), parent);
 
     let mut bytes = Vec::with_capacity(size as usize + 1);
     (&mut stream)
@@ -359,7 +450,7 @@ fn read_snapshot(
     let current = query(file, FILE_ATTRIBUTES).map_err(missing_is_conflict)?;
     // Compare GIO path identity with GIO path identity, and sample xattrs
     // from the same verified read descriptor on both sides of the read.
-    let current_identity = file_identity(&current, path, Some(&stream));
+    let current_identity = file_identity(&current, path, Some(&stream), parent);
     let after = stream.metadata().map_err(map_io)?;
     verify_descriptor(&after, &identity, size)?;
     if bytes.len() as u64 != size
@@ -489,7 +580,12 @@ fn device_and_inode(info: &FileInfo) -> Option<(u64, u64)> {
     )
 }
 
-fn file_identity(info: &FileInfo, path: &Path, stream: Option<&File>) -> FileIdentity {
+fn file_identity(
+    info: &FileInfo,
+    path: &Path,
+    stream: Option<&File>,
+    parent: Option<&File>,
+) -> FileIdentity {
     let portal_path = portal_relative_path(path)
         .filter(|_| stream.is_some_and(|fd| filesystem_type(fd) == Some(FUSE_SUPER_MAGIC)));
     FileIdentity {
@@ -508,7 +604,7 @@ fn file_identity(info: &FileInfo, path: &Path, stream: Option<&File>) -> FileIde
             // A single-file export has a synthetic parent directory.
             None
         } else {
-            stream.and_then(|_| parent_identity(path.parent()?))
+            parent.and_then(parent_identity)
         },
         has_access_acl: stream.and_then(|fd| acl_presence(fd, c"system.posix_acl_access")),
         selinux_label: if portal_path.is_some() {
@@ -538,21 +634,17 @@ fn portal_relative_path(path: &Path) -> Option<&Path> {
     Some(components.as_path())
 }
 
-fn parent_identity(path: &Path) -> Option<ParentDirectory> {
-    // Follow parent symlinks as ordinary path lookup does. O_NOFOLLOW here
-    // would reject a symlink naming the directory containing the file.
-    let parent = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
-        .open(path)
-        .ok()?;
+fn parent_identity(parent: &File) -> Option<ParentDirectory> {
     let info = parent.metadata().ok()?;
+    if !safe_directory(&info, effective_ids().0) {
+        return None;
+    }
     let mode = info.mode() & PERMISSIONS_MASK;
     Some(ParentDirectory {
         uid: Some(info.uid()),
         mode: Some(mode),
         is_sticky: Some(mode & STICKY_BIT != 0),
-        has_default_acl: acl_presence(&parent, c"system.posix_acl_default"),
+        has_default_acl: acl_presence(parent, c"system.posix_acl_default"),
     })
 }
 
@@ -823,11 +915,16 @@ fn open_relative(
     Ok(unsafe { File::from_raw_fd(fd) })
 }
 
+fn relative_inode(directory: &File, name: &CStr) -> io::Result<(u64, u64)> {
+    let stat = relative_stat(directory, name)?;
+    Ok((stat.st_dev, stat.st_ino))
+}
+
 #[allow(
     unsafe_code,
     reason = "inspect the destination entry without following symlinks"
 )]
-fn relative_inode(directory: &File, name: &CStr) -> io::Result<(u64, u64)> {
+fn relative_stat(directory: &File, name: &CStr) -> io::Result<libc::stat> {
     let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
     // SAFETY: The directory stays open, the name is NUL-terminated, and stat
     // points to writable storage for the result.
@@ -840,8 +937,7 @@ fn relative_inode(directory: &File, name: &CStr) -> io::Result<(u64, u64)> {
         )
     })?;
     // SAFETY: Successful fstatat initialized stat.
-    let stat = unsafe { stat.assume_init() };
-    Ok((stat.st_dev, stat.st_ino))
+    Ok(unsafe { stat.assume_init() })
 }
 
 #[allow(unsafe_code, reason = "remove the unpublished staging entry")]
@@ -895,6 +991,15 @@ fn random_suffix() -> io::Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ancestor_symlink_requires_root_ownership_and_a_non_writable_parent() {
+        assert!(trusted_ancestor_symlink(0, 0, 0o755));
+        assert!(!trusted_ancestor_symlink(1000, 0, 0o755));
+        assert!(!trusted_ancestor_symlink(0, 1000, 0o755));
+        assert!(!trusted_ancestor_symlink(0, 0, 0o775));
+        assert!(!trusted_ancestor_symlink(0, 0, 0o1777));
+    }
 
     #[test]
     fn deletion_after_preflight_is_a_conflict_without_recreation() {
