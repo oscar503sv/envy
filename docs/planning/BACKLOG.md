@@ -988,6 +988,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Heredado de ENV-T028 / QA de ENV-T026 (2026-11-22):** el puerto `DocumentStorage` (TD §8.1) solo tiene `read`, `capabilities` y `replace_if_unchanged`, y este último nunca crea archivos. Guardar como no es expresable todavía: decidir al empezar esta tarea si se añade al puerto un método de creación (`create_new`) que comparta el pre-vuelo de ENV-T028 (recomendado, D-12.3 exige el mismo `lstat` y pre-vuelo) o si vive solo en infraestructura.
 
+**Heredado de la re-revisión de ENV-T028 (2026-11-22, decisiones del usuario en D-12):** (1) aceptar un ancestro symlink solo si es de root y está en un directorio de root no escribible por otros (Fedora Atomic, `/home` → `var/home`); hoy `safe_ancestors` rechaza todo ancestro symlink y es incoherente con `parent_identity`, que sí los sigue. (2) Al abrir, borrar los `.envy-[0-9a-f]{16}.tmp` propios y antiguos de la carpeta (mismo dueño, nlink 1). (3) `FakeStorage` no modela `TooLarge` ni el rechazo por etiqueta SELinux propia: añadirlos para probar la orquestación. (4) `capabilities()` informa `can_preserve_permissions=true` con etiqueta SELinux propia aunque el guardado la rechace (contrato consultivo); valorar mostrarlo en la UI. `create_new` debe reutilizar `PreparedSave`/`PendingFile` y publicar sin sobrescribir (`renameat2(RENAME_NOREPLACE)` o `linkat`).
+
 <a id="env-t031"></a>
 #### ENV-T031 — Implementar el adaptador FileMonitor con coalescencia y verificación por hash
 
@@ -1917,6 +1919,10 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Filas añadidas por la revisión de seguridad del spike ENV-T025 (2026-11-22):** fallo de escritura a mitad (`setrlimit(RLIMIT_FSIZE)` con `SIGXFSZ` ignorado) y stream soltado sin cerrar; archivo borrado entre pre-vuelo y guardado; symlink o archivo cambiado tras el pre-vuelo (seam); directorio de grupo con y sin setgid; uid o gid ajeno (contenedor); directorio con ACL por defecto y etiqueta SELinux propia; `chattr +i`/`+a` (manual); directorio sticky; Guardar como sobre un symlink colgante; umask 000/002/022; temporal creado en 0600 (seam o shim).
 
+**Filas añadidas por la re-revisión de ENV-T028 (2026-11-22):** caída (SIGKILL) entre la creación del temporal y `renameat`, con limpieza al abrir; evaluar `O_TMPFILE` + `linkat` en el FUSE del portal; en Flatpak, edición desde el host < 1 s antes de guardar (caché de atributos del FUSE, L-2); `renameat` que falla tras aplicarse (FUSE/red) ⇒ `PostWriteVerificationFailed`; la razón `Identity` también cubre la inestabilidad del padre durante la verificación (falsas alarmas con el contenido correcto); ENOSPC real con montaje pequeño; sticky 1777 de otro uid.
+
+**Filas añadidas por QA y seguridad de ENV-T030 (2026-11-22):** fallback `linkat` en un sistema de archivos sin `RENAME_NOREPLACE`; un archivo del usuario llamado exactamente `.envy-<16hex>.tmp` puede ser borrado por la limpieza a los 10 min (endurecimiento opcional: rechazar ese patrón como destino de `create_new`); un bucle de symlinks en los ancestros da `Io{FilesystemLoop}` en vez de `PermissionsNotPreserved` (falla cerrado); falsa alarma `Identity` residual (~0,1 %) bajo carrera de chmod del padre.
+
 <a id="env-t068"></a>
 #### ENV-T068 — Crear la suite de regresión de edición
 
@@ -2283,6 +2289,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Ningún caso termina con pérdida de datos.
 
 **Pruebas:** Ejecución manual en sesión GNOME real.
+
+**Heredado de ENV-T030 (2026-11-22):** validar en el Flatpak real (a) Guardar como → New, como archivo suelto y dentro de una carpeta compartida: `create_new` rechaza si no puede leer las ACL (`acl_presence == None`, probable `ENOTSUP` en el FUSE del portal), así que puede fallar siempre con `PermissionsNotPreserved`; si es así, decidir en D-19 una exención acotada al portal, nunca para el host; (b) el URI y el inodo que devuelve el diálogo de guardar al elegir el mismo archivo (alias con `ReplaceExisting`); (c) `RENAME_NOREPLACE`/`linkat` sobre el FUSE. La UI debe abrir documentos fuera del hilo de GTK (la limpieza de staging recorre la carpeta).
 
 <a id="env-t083"></a>
 #### ENV-T083 — Redactar README, añadir la licencia y documentar limitaciones
