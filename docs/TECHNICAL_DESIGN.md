@@ -354,14 +354,20 @@ pub trait DocumentStorage {
         expected: &DiskVersion,
         content: &[u8],
     ) -> Result<DiskVersion, StorageError>;
+    fn create_new(&self, resource: &ResourceRef, content: &[u8])
+        -> Result<DiskVersion, StorageError>;
+    fn remove_stale_staging(&self, resource: &ResourceRef);
 }
 
 pub struct StorageCapabilities {
     pub supports_conditional_replace: bool,
     pub supports_atomic_replace: bool,
     pub can_preserve_permissions: bool,
+    pub is_writable: bool,
 }
 ```
+
+> **Estado de implementación (2026-11-25):** el puerto real está en `src/services/storage.rs`. `create_new` (Guardar como, D-27) nunca sobrescribe ni sigue el destino; `remove_stale_staging` limpia al abrir los temporales huérfanos (D-12, revisión del 2026-11-22). El contrato detallado (precedencia de errores, `PostWriteVerificationFailed`) vive en los comentarios del puerto.
 
 Interfaz conceptual; métodos síncronos mostrados por claridad. La lectura, hash y escritura deben ejecutarse sin bloquear el hilo principal de GTK (operaciones asíncronas Gio o worker controlado).
 
@@ -385,6 +391,8 @@ Gio utiliza reemplazo atómico en ciertos backends locales, pero eso **no garant
 **Política MVP de enlaces simbólicos:** detectar y rechazar por defecto la edición sobre la ruta simbólica. El usuario puede seleccionar expresamente el destino regular mediante el selector, sujeto a permisos. Se evita reemplazar accidentalmente el enlace por un archivo.
 
 **Backups:** `make_backup=false` por defecto. No crear archivos `.bak` de secretos de manera implícita.
+
+> **Estado de implementación (2026-11-25):** el spike ENV-T025 y la revisión de seguridad de ENV-T028 mostraron que `gio::File::replace` puede truncar el original cuando no puede crear su temporal. Por decisión del usuario (D-12, revisión del 2026-11-22), el guardado local no usa `replace_contents`: escribe un temporal privado `.envy-<hex>.tmp` en el mismo directorio anclado por descriptor, copia uid/gid/modo, hace `fsync`, comprueba el inodo base justo antes y publica con `renameat` (o `renameat2(RENAME_NOREPLACE)` en `create_new`), seguido de `fsync` del directorio y verificación posterior. Gio se mantiene para lectura, metadatos, monitor y URIs. La matriz de pruebas está en [`docs/testing/SAVE_SAFETY_MATRIX.md`](testing/SAVE_SAFETY_MATRIX.md).
 
 ## 9. Quick Edit y ciclo de vida de aplicación
 

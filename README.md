@@ -6,7 +6,7 @@
 
 Envy is a local-first, GNOME-native editor for dotenv (`.env`) files. Open a file and change a variable in seconds, or keep the environment files of all your projects one click away, without opening an IDE and without Envy reformatting your file.
 
-> **Status: pre-alpha, in planning.** There is no usable application yet. The product requirements, technical design and the v0.1.0 delivery plan are in [`docs/`](docs/). The first release, v0.1.0, is estimated for March 2027.
+> **Status: pre-alpha, core in development.** There is no usable application yet: the document engine and safe file storage are implemented and tested, the GTK interface is not started. The product requirements, technical design and the v0.1.0 delivery plan are in [`docs/`](docs/). The first release, v0.1.0, is estimated for March 2027.
 
 ## Why Envy
 
@@ -54,7 +54,7 @@ Envy supports a documented subset of dotenv:
 - Comment lines (`# …`) and trailing comments (` # …`, preceded by whitespace).
 - Double quotes recognize `\\`, `\"`, `\n`, `\r` and `\t`. Single quotes are fully literal.
 
-Anything outside the subset is shown read-only as "unsupported syntax" and preserved byte for byte. The full rules will live in `docs/SYNTAX.md`.
+Anything outside the subset is shown read-only as "unsupported syntax" and preserved byte for byte. The full rules are in [`docs/SYNTAX.md`](docs/SYNTAX.md).
 
 ## Installation
 
@@ -68,11 +68,11 @@ Stack:
 
 - Rust 1.95 or newer, edition 2024 (`rust-toolchain.toml` pins the toolchain for `rustup`)
 - GTK 4 and libadwaita 1.5 or newer (from the UI milestone on)
-- Gio for file access, monitoring and saving
+- Gio for file access and monitoring; saving uses descriptor-based writes through `libc` (atomic rename with post-write verification)
 - Cargo with `build.rs` as the build system
 - Flatpak with the GNOME 51 runtime
 
-GitHub Actions runs the core checks on Linux without GTK system libraries. To run the same checks locally, use the commands below. The supply-chain check requires cargo-deny.
+GitHub Actions runs the core checks on Linux with the GLib development files but without GTK. Locally you need the GLib/Gio development files (`libglib2.0-dev` on Debian/Ubuntu, `glib2-devel` on Fedora); the ACL tests use `setfacl` from the `acl` package and are skipped when it is missing, unless `ENVY_REQUIRE_FIXTURES=acl` (as in CI) turns the skip into a failure. The supply-chain check requires cargo-deny.
 
 ```sh
 cargo build
@@ -89,6 +89,8 @@ Flatpak build instructions will be added together with the manifest.
 
 - [Product requirements (PRD)](docs/PRD.md)
 - [Technical design](docs/TECHNICAL_DESIGN.md)
+- [Supported dotenv syntax](docs/SYNTAX.md)
+- [Safe-save test matrix](docs/testing/SAVE_SAFETY_MATRIX.md)
 - [v0.1.0 planning](docs/planning/): roadmap, sprint plan, backlog, milestones, risks, decisions and definition of done
 
 The design and planning documents are written in Spanish.

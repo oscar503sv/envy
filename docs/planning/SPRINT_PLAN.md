@@ -1,6 +1,7 @@
 # Envy v0.1.0 — Plan de sprints
 
 > **Estado:** plan provisional; las fechas son **estimadas**, no compromisos aprobados.  
+> **Progreso real (2026-11-25):** S01–S05 completados entre el 2026-11-20 y el 2026-11-25, muy por delante del calendario estimado (S05 terminaba el 2026-12-25). Las 31 tareas de S01–S05 están en `Done` en Orbit, Linear y [BACKLOG.md](BACKLOG.md). Siguiente: S06. Las fechas de los sprints restantes no se han replanificado; ver §5 (regla de replanificación) y la sección de progreso al final.  
 > **Fuente de tareas:** [BACKLOG.md](BACKLOG.md). Hitos en [MILESTONES.md](MILESTONES.md).
 
 ## 1. Supuestos de capacidad
@@ -390,7 +391,18 @@ Las estimaciones de cada tarea ya incluyen sus pruebas unitarias, revisión e in
 - Cambios de alcance solo vía PRD aprobado; se registran en [DECISIONS.md](DECISIONS.md).
 - Con 41 h/semana, si dos semanas seguidas se completa menos del 80 % de lo planificado, se replanifica con la capacidad real observada (R-17).
 
-## 6. Historial del plan
+## 6. Progreso real
+
+| Sprint | Estado | Terminado | Notas |
+|---|---|---|---|
+| S01 | Completado | 2026-11-22 | Arranque, especificación D-11, modelo y fixtures. |
+| S02 | Completado | 2026-11-22 | Spike ENV-T025 (guardado Gio), CI y parser. |
+| S03 | Completado | 2026-11-22 | Spike ENV-T054 (Flatpak, D-19), ValueCodec y SetValue. |
+| S04 | Completado | 2026-11-22 | Historial, puerto de almacenamiento, lectura segura y sesión. |
+| S05 | Completado | 2026-11-25 | Escritura por descriptores (D-12 revisada), Guardar como (D-27), monitor y matriz de guardado seguro ([SAVE_SAFETY_MATRIX](../testing/SAVE_SAFETY_MATRIX.md)). |
+| S06 | Pendiente | — | ENV-T021, ENV-T032, ENV-T068, ENV-T069, ENV-T070. |
+
+## 7. Historial del plan
 
 | Versión | Fecha | Cambio |
 |---|---|---|

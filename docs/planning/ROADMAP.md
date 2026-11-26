@@ -4,6 +4,8 @@
 > **Fuentes:** [`docs/PRD.md`](../PRD.md) v1.1 (alcance) y [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md) v1.1 (implementación).  
 > **Documentos:** [BACKLOG](BACKLOG.md) (tareas) · [SPRINT_PLAN](SPRINT_PLAN.md) (calendario) · [MILESTONES](MILESTONES.md) (hitos) · [RISKS](RISKS.md) · [DEFINITION_OF_DONE](DEFINITION_OF_DONE.md) · [DECISIONS](DECISIONS.md) · [TASK_TEMPLATE](TASK_TEMPLATE.md)
 
+> **Progreso (2026-11-25):** S01–S05 completados (31 de 88 tareas en `Done`): motor dotenv, historial, almacenamiento seguro, sesión, monitor y matriz de guardado seguro. Todavía no hay UI. Detalle en [SPRINT_PLAN §6](SPRINT_PLAN.md#6-progreso-real).
+
 ## 1. Estado de partida (confirmado)
 
 - Repositorio con Git inicializado, **sin commits** y sin código: solo `docs/PRD.md` y `docs/TECHNICAL_DESIGN.md`.

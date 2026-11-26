@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de decisiones
 
-> **Estado (plan v2, actualizado 2026-11-21):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-12**, **D-19**, **D-23**, **D-24**, **D-25**, **D-27**, **D-32** y **D-34** (aprobadas por el usuario; D-12, D-19, D-23, D-24, D-25, D-27 y D-34 el 2026-11-22). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
+> **Estado (plan v2, actualizado 2026-11-25):** resueltas **D-01**, **D-02**, **D-03**, **D-05**, **D-06**, **D-08**, **D-09**, **D-11**, **D-12**, **D-19**, **D-23**, **D-24**, **D-25**, **D-27**, **D-32** y **D-34** (aprobadas por el usuario; D-12, D-19, D-23, D-24, D-25, D-27 y D-34 el 2026-11-22). D-12 tiene dos revisiones del usuario del 2026-11-22 (escritura propia por descriptores con `libc`; ancestros symlink de root y limpieza de temporales) y D-19 amplía su condición 7 (exención SELinux en todo el portal). Todas las demás decisiones siguen **pendientes** o **propuestas**; no se atribuyen aprobaciones inexistentes.  
 > **Regla:** este documento no modifica [`docs/PRD.md`](../PRD.md) ni [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md). Los cambios que esos documentos necesiten se registran como propuestas en la §3 para que el usuario los apruebe y los aplique.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [RISKS](RISKS.md) · [MILESTONES](MILESTONES.md)
 

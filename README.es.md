@@ -6,7 +6,7 @@
 
 Envy es un editor de archivos dotenv (`.env`) local-first y nativo de GNOME. Abre un archivo y cambia una variable en segundos, o ten a un clic los archivos de entorno de todos tus proyectos, sin abrir un IDE y sin que Envy reformatee tu archivo.
 
-> **Estado: pre-alpha, en planificación.** Todavía no hay una aplicación utilizable. Los requisitos de producto, el diseño técnico y el plan de entrega de v0.1.0 están en [`docs/`](docs/). La primera versión, v0.1.0, está estimada para marzo de 2027.
+> **Estado: pre-alpha, núcleo en desarrollo.** Todavía no hay una aplicación utilizable: el motor de documentos y el almacenamiento seguro de archivos están implementados y probados; la interfaz GTK aún no ha empezado. Los requisitos de producto, el diseño técnico y el plan de entrega de v0.1.0 están en [`docs/`](docs/). La primera versión, v0.1.0, está estimada para marzo de 2027.
 
 ## Por qué Envy
 
@@ -54,7 +54,7 @@ Envy admite un subconjunto documentado de dotenv:
 - Líneas de comentario (`# …`) y comentarios al final (` # …`, precedidos de un espacio).
 - Las comillas dobles reconocen `\\`, `\"`, `\n`, `\r` y `\t`. Las comillas simples son totalmente literales.
 
-Todo lo que queda fuera del subconjunto se muestra en solo lectura como "sintaxis no editable" y se conserva byte a byte. Las reglas completas estarán en `docs/SYNTAX.md`.
+Todo lo que queda fuera del subconjunto se muestra en solo lectura como "sintaxis no editable" y se conserva byte a byte. Las reglas completas están en [`docs/SYNTAX.md`](docs/SYNTAX.md).
 
 ## Instalación
 
@@ -68,11 +68,11 @@ Stack:
 
 - Rust 1.95 o superior, edición 2024 (`rust-toolchain.toml` fija el toolchain para `rustup`)
 - GTK 4 y libadwaita 1.5 o superior (a partir del hito de interfaz)
-- Gio para el acceso, la monitorización y el guardado de archivos
+- Gio para el acceso y la monitorización de archivos; el guardado usa escritura por descriptores con `libc` (rename atómico con verificación posterior)
 - Cargo con `build.rs` como sistema de build
 - Flatpak con el runtime GNOME 51
 
-GitHub Actions ejecuta las comprobaciones del núcleo en Linux sin bibliotecas de sistema de GTK. Usa los comandos siguientes para ejecutar las mismas comprobaciones en local. La comprobación de dependencias requiere cargo-deny.
+GitHub Actions ejecuta las comprobaciones del núcleo en Linux con los archivos de desarrollo de GLib, pero sin GTK. En local necesitas los archivos de desarrollo de GLib/Gio (`libglib2.0-dev` en Debian/Ubuntu, `glib2-devel` en Fedora). Las pruebas de ACL usan `setfacl` del paquete `acl` y se omiten si falta, salvo que `ENVY_REQUIRE_FIXTURES=acl` (como en CI) convierta la omisión en fallo. Usa los comandos siguientes para ejecutar las mismas comprobaciones en local. La comprobación de dependencias requiere cargo-deny.
 
 ```sh
 cargo build
@@ -89,6 +89,8 @@ Las instrucciones para compilar el Flatpak se añadirán junto con el manifiesto
 
 - [Requisitos de producto (PRD)](docs/PRD.md)
 - [Diseño técnico](docs/TECHNICAL_DESIGN.md)
+- [Sintaxis dotenv admitida](docs/SYNTAX.md)
+- [Matriz de pruebas de guardado seguro](docs/testing/SAVE_SAFETY_MATRIX.md)
 - [Planificación de v0.1.0](docs/planning/): roadmap, plan de sprints, backlog, hitos, riesgos, decisiones y definición de terminado
 
 ## Contribuir

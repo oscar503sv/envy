@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Registro de riesgos
 
-> **Estado:** actualizado para el plan v2 (2026-11-20, 41 h/semana). Revisión semanal en la planificación del sprint.  
+> **Estado:** actualizado para el plan v2 (2026-11-20, 41 h/semana); seguimiento de R-01 actualizado el 2026-11-25. Revisión semanal en la planificación del sprint.  
 > **Escalas:** Probabilidad (P) y Impacto (I): Baja / Media / Alta. **Exposición** = combinación cualitativa.  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [DECISIONS](DECISIONS.md) · [MILESTONES](MILESTONES.md)
 
@@ -17,6 +17,8 @@ Actualizado para el plan v2 (41 h/semana confirmadas, 15 sprints).
 | 5 | **R-01** No existe garantía de guardado condicionado suficiente con Gio en local | Alta | Alta | Spike ENV-T025 en S02; política D-12 antes del 2026-12-21; bloqueo + Guardar como |
 
 R-09 (errores sutiles en el código generado por IA) sigue siendo alto; con 41 h/semana su probabilidad depende directamente de R-17, porque la revisión humana es la mitigación principal.
+
+**Seguimiento de R-01 (2026-11-25):** el spike ENV-T025 confirmó el riesgo y la revisión de seguridad de ENV-T028 encontró que `gio::File::replace` podía truncar el original (H-1). Mitigado con la escritura propia por descriptores (D-12, revisión del 2026-11-22): temporal privado en el mismo directorio, comprobación final del inodo, `renameat` y verificación posterior; ~2 900 intentos adversariales sin truncados. Residuales aceptados y documentados en la [matriz de guardado seguro](../testing/SAVE_SAFETY_MATRIX.md): ventana TOCTOU entre la última comprobación y el rename, ~0,1 % de avisos `Identity` falsos con contenido correcto, temporales huérfanos tras una caída (se limpian al abrir) y validación pendiente del portal Flatpak (ENV-T082).
 
 ## 2. Registro completo
 
