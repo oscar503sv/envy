@@ -46,3 +46,12 @@ pub fn first_difference(expected: &[u8], actual: &[u8]) -> Option<FirstDifferenc
 pub fn mismatch_message(fixture: &str, difference: FirstDifference) -> String {
     format!("{fixture}: round trip mismatch, {difference}")
 }
+
+pub fn skip_or_fail(fixture: &str) {
+    let required = std::env::var("ENVY_REQUIRE_FIXTURES").unwrap_or_default();
+    assert!(
+        !required.split(',').any(|name| name.trim() == fixture),
+        "required test fixture unavailable: {fixture}"
+    );
+    eprintln!("skipping unavailable test fixture: {fixture}");
+}

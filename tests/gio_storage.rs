@@ -1,5 +1,7 @@
 #![cfg(target_os = "linux")]
 
+mod common;
+
 use std::{
     ffi::OsStr,
     fs::{self, OpenOptions, Permissions},
@@ -203,6 +205,7 @@ fn unreadable_file_is_rejected_without_mutation() {
     let path = dir.path(SENTINEL);
     fs::write(&path, SENTINEL).unwrap();
     if fs::metadata(&path).unwrap().uid() == 0 {
+        common::skip_or_fail("unprivileged-user");
         return;
     }
     set_mode(&path, 0);
@@ -235,34 +238,19 @@ fn detects_access_and_default_acls() {
     let dir = TempDir::new();
     let path = dir.path(SENTINEL);
     fs::write(&path, SENTINEL).unwrap();
-    let set_access_acl = |entry: &str| {
-        Command::new("setfacl")
-            .args(["-m", entry])
-            .arg(&path)
+    let owner = fs::metadata(&path).unwrap().uid();
+    let entry = format!("u:{owner}:r");
+    for (flag, target) in [("-m", &path), ("-dm", &dir.0)] {
+        if !Command::new("setfacl")
+            .args([flag, &entry])
+            .arg(target)
             .output()
-    };
-    let entry = match set_access_acl("u:nobody:r") {
-        Err(error) if error.kind() == ErrorKind::NotFound => return,
-        Ok(output) if output.status.success() => "u:nobody:r".to_owned(),
-        result => {
-            assert!(result.is_ok());
-            // User namespaces can leave nobody unmapped. A named entry for
-            // the file owner still creates an extended ACL.
-            let owner = fs::metadata(&path).unwrap().uid();
-            let entry = format!("u:{owner}:r");
-            assert!(set_access_acl(&entry).unwrap().status.success());
-            entry
+            .is_ok_and(|output| output.status.success())
+        {
+            common::skip_or_fail("acl");
+            return;
         }
-    };
-    assert!(
-        Command::new("setfacl")
-            .args(["-d", "-m", &entry])
-            .arg(&dir.0)
-            .output()
-            .unwrap()
-            .status
-            .success()
-    );
+    }
     let snapshot = GioStorage.read(&resource(&path)).unwrap();
     let identity = snapshot.version.identity.unwrap();
     assert_eq!(identity.has_access_acl, Some(true));
@@ -302,24 +290,44 @@ fn reads_non_utf8_local_filenames() {
     assert!(snapshot.bytes.expose() == SENTINEL.as_bytes());
 }
 
+const GIO_COMPLETION: &str = "ENVY_GIO_COMPLETION";
+
+fn gio_child(test: &str) -> Command {
+    let executable = std::env::current_exe();
+    assert!(executable.is_ok(), "test executable is unavailable");
+    let mut command = Command::new(executable.unwrap_or_default());
+    command.args(["--exact", test, "--ignored"]);
+    command
+}
+
+fn run_gio_child(command: &mut Command) {
+    let marker_dir = TempDir::new();
+    let marker = marker_dir.path("complete");
+    let status = command
+        .env(GIO_COMPLETION, &marker)
+        .output()
+        .map(|o| o.status);
+    assert!(
+        status.is_ok_and(|status| status.success()),
+        "test subprocess failed"
+    );
+    assert!(marker.is_file(), "test subprocess did not complete");
+}
+
+fn complete_gio_child() {
+    let marker = std::env::var_os(GIO_COMPLETION);
+    assert!(marker.is_some(), "completion marker is not configured");
+    assert!(fs::write(marker.unwrap_or_default(), []).is_ok());
+}
+
 #[test]
 fn repeated_reads_do_not_leak_descriptors() {
-    const CHILD: &str = "ENVY_FD_LEAK_TEST_CHILD";
-    // Run this test alone in a separate process so parallel tests cannot
-    // change the descriptor count between measurements.
-    if std::env::var_os(CHILD).is_none() {
-        let output = Command::new(std::env::current_exe().unwrap())
-            .args(["--exact", "repeated_reads_do_not_leak_descriptors"])
-            .env(CHILD, "1")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        return;
-    }
+    run_gio_child(&mut gio_child("fd_leak_child"));
+}
+
+#[test]
+#[ignore = "subprocess entry point"]
+fn fd_leak_child() {
     let dir = TempDir::new();
     let path = dir.path(SENTINEL);
     fs::write(&path, SENTINEL).unwrap();
@@ -330,6 +338,7 @@ fn repeated_reads_do_not_leak_descriptors() {
         GioStorage.read(&resource).unwrap();
     }
     assert_eq!(count(), before);
+    complete_gio_child();
 }
 
 #[test]
@@ -456,8 +465,8 @@ fn refuses_access_and_default_acl_before_publication() {
             .arg(if is_default { &dir.0 } else { &path })
             .output();
         if !acl.is_ok_and(|output| output.status.success()) {
-            eprintln!("skipping ACL fixture: setfacl or filesystem ACL support unavailable");
-            return;
+            common::skip_or_fail("acl");
+            continue;
         }
         let destination = resource(&path);
         let before = GioStorage.read(&destination).unwrap();
@@ -483,24 +492,12 @@ fn refuses_access_and_default_acl_before_publication() {
 
 #[test]
 fn partial_write_preserves_original_and_removes_temporary_file() {
-    const CHILD: &str = "ENVY_GIO_FSIZE_TEST_CHILD";
-    if std::env::var_os(CHILD).is_none() {
-        let output = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "partial_write_preserves_original_and_removes_temporary_file",
-            ])
-            .env(CHILD, "1")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stdout)
-        );
-        return;
-    }
+    run_gio_child(&mut gio_child("partial_write_child"));
+}
 
+#[test]
+#[ignore = "subprocess entry point"]
+fn partial_write_child() {
     let dir = TempDir::new();
     let path = dir.path(SENTINEL);
     fs::write(&path, b"old").unwrap();
@@ -515,6 +512,7 @@ fn partial_write_preserves_original_and_removes_temporary_file() {
     assert!(!format!("{error:?} {error}").contains(SENTINEL));
     assert!(GioStorage.read(&destination).unwrap() == before);
     assert!(dir.listing() == [SENTINEL]);
+    complete_gio_child();
 }
 
 #[allow(
@@ -537,7 +535,7 @@ fn limit_child_file_size() {
 #[test]
 fn refuses_custom_selinux_label_before_publication() {
     if !Path::new("/sys/fs/selinux/enforce").exists() {
-        eprintln!("skipping SELinux fixture: SELinux is unavailable");
+        common::skip_or_fail("selinux");
         return;
     }
     let dir = TempDir::new();
@@ -551,7 +549,7 @@ fn refuses_custom_selinux_label_before_publication() {
         .arg(&path)
         .output();
     if !relabel.is_ok_and(|output| output.status.success()) {
-        eprintln!("skipping SELinux fixture: chcon could not set ssh_home_t");
+        common::skip_or_fail("selinux");
         return;
     }
     let base = GioStorage.read(&destination).unwrap().version;
@@ -574,32 +572,21 @@ const LONG_WINDOW_ATTEMPTS: usize = 40;
 
 #[test]
 fn permission_race_preserves_complete_file_with_and_without_write_limit() {
-    if let Some(mode) = std::env::var_os(RACE_CHILD) {
-        if mode == "normal" {
-            clear_child_umask();
-            replaces_with_verified_hash_and_new_inode_in_sticky_directory();
-        }
-        run_permission_race(mode == "limited");
-        return;
-    }
     for mode in ["normal", "limited"] {
-        let output = Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "permission_race_preserves_complete_file_with_and_without_write_limit",
-                "--nocapture",
-            ])
-            .env(RACE_CHILD, mode)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        run_gio_child(gio_child("permission_race_child").env(RACE_CHILD, mode));
     }
+}
+
+#[test]
+#[ignore = "subprocess entry point"]
+fn permission_race_child() {
+    let mode = std::env::var_os(RACE_CHILD).unwrap();
+    if mode == "normal" {
+        clear_child_umask();
+        replaces_with_verified_hash_and_new_inode_in_sticky_directory();
+    }
+    run_permission_race(mode == "limited");
+    complete_gio_child();
 }
 
 #[allow(
@@ -703,15 +690,15 @@ fn preserves_supplementary_group() {
     fs::write(&path, b"old").unwrap();
     let primary_gid = fs::metadata(&path).unwrap().gid();
     let Ok(output) = Command::new("id").arg("-G").output() else {
+        common::skip_or_fail("supplementary-group");
         return;
     };
-    assert!(output.status.success());
     let Some(gid) = String::from_utf8_lossy(&output.stdout)
         .split_whitespace()
         .filter_map(|value| value.parse::<u32>().ok())
         .find(|&gid| gid != primary_gid && gid != 65534)
     else {
-        eprintln!("skipping supplementary-group fixture: no eligible group");
+        common::skip_or_fail("supplementary-group");
         return;
     };
     std::os::unix::fs::chown(&path, None, Some(gid)).unwrap();
@@ -737,22 +724,23 @@ fn clear_child_umask() {
 
 #[test]
 fn create_new_is_private_and_cleans_staging_under_both_umasks() {
-    const CHILD: &str = "ENVY_TEST_CREATE_UNDER_UMASK";
-    if std::env::var_os(CHILD).is_none() {
-        for mask in ["000", "077"] {
-            let output = Command::new("sh")
-                .args(["-c", "umask \"$1\"; exec \"$2\" --exact create_new_is_private_and_cleans_staging_under_both_umasks", "sh", mask])
-                .arg(std::env::current_exe().unwrap())
-                .env(CHILD, "1")
-                .output()
-                .unwrap();
-            assert!(
-                output.status.success(),
-                "create-new child failed under the selected umask"
-            );
-        }
-        return;
+    for mask in ["000", "077"] {
+        run_gio_child(
+            Command::new("sh")
+                .args([
+                    "-c",
+                    "umask \"$1\" && exec \"$2\" --exact create_new_umask_child --ignored",
+                    "sh",
+                    mask,
+                ])
+                .arg(std::env::current_exe().unwrap()),
+        );
     }
+}
+
+#[test]
+#[ignore = "subprocess entry point"]
+fn create_new_umask_child() {
     let dir = TempDir::new();
     set_mode(&dir.0, 0o700);
     let path = dir.path(SENTINEL);
@@ -762,6 +750,7 @@ fn create_new_is_private_and_cleans_staging_under_both_umasks() {
     assert!(fs::read(&path).unwrap() == SENTINEL.as_bytes());
     assert_eq!(fs::metadata(&path).unwrap().mode() & 0o7777, 0o600);
     assert!(dir.listing() == [OsStr::new(SENTINEL)]);
+    complete_gio_child();
 }
 
 fn assert_create_error(
@@ -817,7 +806,7 @@ fn create_new_refuses_default_acl() {
         .output()
         .is_ok_and(|output| output.status.success())
     {
-        eprintln!("skipping ACL fixture: setfacl or filesystem ACL support unavailable");
+        common::skip_or_fail("acl");
         return;
     }
     assert_create_error(
