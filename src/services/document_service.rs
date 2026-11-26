@@ -393,6 +393,13 @@ impl DocumentSession {
             return Err(StorageError::NotFound.into());
         }
         self.capabilities = self.storage.capabilities(&self.resource);
+        // Capabilities cannot tell a deleted file from a read-only one, and
+        // Missing leads the user to Save As instead of a permission fix.
+        if !self.capabilities.is_writable
+            && matches!(self.refresh_external(), Ok(ExternalChange::Missing))
+        {
+            return Err(StorageError::NotFound.into());
+        }
         if self.is_read_only() {
             return Err(StorageError::ReadOnly.into());
         }
