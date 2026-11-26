@@ -75,6 +75,8 @@ pub enum SetValueOutcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum EditError {
+    #[error("the paste preview is stale")]
+    StalePaste,
     #[error("the assignment key is invalid")]
     InvalidKey,
     #[error("cannot append after an unclosed quote")]

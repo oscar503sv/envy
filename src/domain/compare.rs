@@ -1,15 +1,13 @@
 //! Key-level diagnostics over parsed documents: duplicate keys and key set
-//! comparison.
+//! comparison, and conflict summaries.
 //!
-//! Everything here looks at live (non-removed) assignment nodes only and at
-//! their keys only. Values are never read, compared or exposed, and keys are
-//! held in [`Redacted`] so that Debug output of the results stays safe
-//! (PRD §8.2). Duplicates are a diagnostic: which occurrence "wins" is a
-//! consumer decision and is never computed here (SYNTAX §5.9).
+//! Comparisons consider live assignments. Conflict review compares decoded
+//! values in memory and returns only redacted keys, statuses, and a line count.
 
 use std::collections::HashMap;
 
 use super::{
+    codec::decode,
     document::{EnvDocument, NodeId, NodeKind},
     redact::Redacted,
 };
@@ -140,6 +138,143 @@ pub fn compare_keys(current: &EnvDocument, reference: &EnvDocument) -> KeyCompar
     result
 }
 
+/// A key mismatch, relative to the disk snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyChangeStatus {
+    Added,
+    Removed,
+    Changed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyChange {
+    pub key: Redacted<String>,
+    pub status: KeyChangeStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConflictSummary {
+    Structured {
+        changes: Vec<KeyChange>,
+        differing_lines: usize,
+    },
+    LinesOnly {
+        differing_lines: usize,
+    },
+}
+
+/// Compares live assignments using case-sensitive keys and ordered lists of
+/// decoded values. A different value or occurrence count marks a key changed.
+/// Quoting changes with the same decoded value only affect the line count.
+/// Changes are ordered lexicographically by key.
+pub fn compare_conflict(local: &EnvDocument, disk: &EnvDocument) -> ConflictSummary {
+    let differing_lines = count_differing_lines(&local.serialize(), &disk.serialize());
+    // Keys inside raw nodes are invisible to the comparison, so a structured
+    // result would misreport them as added or removed.
+    let has_raw = |doc: &EnvDocument| {
+        doc.nodes()
+            .iter()
+            .any(|node| !node.is_removed() && matches!(node.kind(), NodeKind::Raw))
+    };
+    if has_raw(local) || has_raw(disk) {
+        return ConflictSummary::LinesOnly { differing_lines };
+    }
+
+    let local_values = assignment_values(local);
+    let mut disk_values = assignment_values(disk);
+    let mut changes = Vec::new();
+    for (key, values) in local_values {
+        let status = match disk_values.remove(key) {
+            None => KeyChangeStatus::Added,
+            Some(disk_values) if disk_values != values => KeyChangeStatus::Changed,
+            Some(_) => continue,
+        };
+        changes.push(KeyChange {
+            key: Redacted::new(key.to_owned()),
+            status,
+        });
+    }
+    changes.extend(disk_values.into_keys().map(|key| KeyChange {
+        key: Redacted::new(key.to_owned()),
+        status: KeyChangeStatus::Removed,
+    }));
+    changes.sort_by(|a, b| a.key.expose().cmp(b.key.expose()));
+    ConflictSummary::Structured {
+        changes,
+        differing_lines,
+    }
+}
+
+fn assignment_values(doc: &EnvDocument) -> HashMap<&str, Vec<String>> {
+    let mut values = HashMap::<&str, Vec<String>>::new();
+    for node in doc.nodes().iter().filter(|node| !node.is_removed()) {
+        let NodeKind::Assignment(syntax) = node.kind() else {
+            continue;
+        };
+        let raw = doc
+            .current_bytes(node)
+            .and_then(|bytes| std::str::from_utf8(bytes).ok())
+            .and_then(|text| text.get(syntax.value_range.clone()));
+        if let Some(raw) = raw {
+            values
+                .entry(syntax.key.expose())
+                .or_default()
+                .push(decode(syntax.quote, raw));
+        }
+    }
+    values
+}
+
+/// Counts differing physical lines as the larger of the lines present only
+/// locally and the lines present only on disk, matching equal lines as a
+/// multiset. Inserting or removing a block counts only that block, wherever it
+/// is. When only the order differs, it counts the lines between the common
+/// leading and trailing lines, so differing inputs never report zero.
+/// Terminators (LF, CRLF or CR) are part of each line, so line-ending changes
+/// count. A final terminator does not create a trailing empty line. Linear
+/// expected time; no full diff is computed.
+pub fn count_differing_lines(local: &[u8], disk: &[u8]) -> usize {
+    let mut balance = HashMap::<&[u8], isize>::new();
+    for line in physical_lines(local) {
+        *balance.entry(line).or_default() += 1;
+    }
+    for line in physical_lines(disk) {
+        *balance.entry(line).or_default() -= 1;
+    }
+    let only_local: isize = balance.values().filter(|count| **count > 0).sum();
+    let only_disk: isize = -balance.values().filter(|count| **count < 0).sum::<isize>();
+    let unmatched = only_local.max(only_disk).unsigned_abs();
+    if unmatched > 0 || local == disk {
+        return unmatched;
+    }
+    let local: Vec<&[u8]> = physical_lines(local).collect();
+    let disk: Vec<&[u8]> = physical_lines(disk).collect();
+    let prefix = local.iter().zip(&disk).take_while(|(a, b)| a == b).count();
+    let suffix = local
+        .iter()
+        .rev()
+        .zip(disk.iter().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    local.len().saturating_sub(prefix + suffix)
+}
+
+fn physical_lines(mut bytes: &[u8]) -> impl Iterator<Item = &[u8]> {
+    std::iter::from_fn(move || {
+        if bytes.is_empty() {
+            return None;
+        }
+        let end = match bytes.iter().position(|byte| matches!(byte, b'\r' | b'\n')) {
+            Some(at) if bytes.get(at..at + 2) == Some(b"\r\n") => at + 2,
+            Some(at) => at + 1,
+            None => bytes.len(),
+        };
+        let (line, rest) = bytes.split_at(end);
+        bytes = rest;
+        Some(line)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     // `assert!(a == b)` on keys instead of `assert_eq!`: a failing `assert_eq!`
@@ -186,6 +321,75 @@ mod tests {
             is_export: false,
         });
         doc.insert_synthetic_node(usize::MAX, bytes, kind, None)
+    }
+
+    #[test]
+    fn conflict_reports_only_mismatched_keys_and_redacts_debug() {
+        let local = doc(&format!(
+            "{SENTINEL}={SENTINEL}\nCHANGED={SENTINEL}\nDUP=1\nDUP=2\nORDER=1\nORDER=2\nQUOTED='{SENTINEL}'\nMULTI=\"{SENTINEL}\nlocal\"\n"
+        ));
+        let disk = doc(&format!(
+            "{SENTINEL}_REMOVED={SENTINEL}\nCHANGED=other\nDUP=1\nORDER=2\nORDER=1\nQUOTED={SENTINEL}\nMULTI=\"{SENTINEL}\ndisk\"\n"
+        ));
+        let summary = compare_conflict(&local, &disk);
+        let ConflictSummary::Structured {
+            changes,
+            differing_lines,
+        } = &summary
+        else {
+            panic!("expected a structured comparison");
+        };
+        use KeyChangeStatus::{Added, Changed, Removed};
+        let actual: Vec<_> = changes
+            .iter()
+            .map(|change| (change.key.expose().as_str(), change.status))
+            .collect();
+        let removed = format!("{SENTINEL}_REMOVED");
+        assert!(
+            actual
+                == [
+                    ("CHANGED", Changed),
+                    ("DUP", Changed),
+                    (SENTINEL, Added),
+                    (removed.as_str(), Removed),
+                    ("MULTI", Changed),
+                    ("ORDER", Changed),
+                ]
+        );
+        assert!(*differing_lines == 5);
+        assert!(!format!("{summary:?} {summary:#?}").contains(SENTINEL));
+        for change in changes {
+            assert!(!format!("{change:?} {:?}", change.status).contains(SENTINEL));
+        }
+    }
+
+    #[test]
+    fn conflict_counts_raw_lines_separately_from_decoded_values() {
+        let local = doc(&format!("MULTI=\"{SENTINEL}\r\nnext\"\r\n"));
+        let disk = doc(&format!("MULTI=\"{SENTINEL}\nnext\"\n"));
+        assert!(
+            compare_conflict(&local, &disk)
+                == ConflictSummary::Structured {
+                    changes: Vec::new(),
+                    differing_lines: 2,
+                }
+        );
+        assert!(
+            compare_conflict(&local, &doc(SENTINEL))
+                == ConflictSummary::LinesOnly { differing_lines: 2 }
+        );
+        assert!(
+            compare_conflict(&doc("A='x\nB=1\n"), &doc("A=y\nB=1\n"))
+                == ConflictSummary::LinesOnly { differing_lines: 1 }
+        );
+        assert!(count_differing_lines(b"A\rB\r\nC\n", b"A\rC\n") == 1);
+        assert!(count_differing_lines(b"NEW\nA\nB\nC\n", b"A\nB\nC\n") == 1);
+        assert!(count_differing_lines(b"A\nX\nY\nC\n", b"A\nB\nC\n") == 2);
+        assert!(count_differing_lines(b"A\nB\nC\n", b"B\nA\nC\n") == 2);
+        assert!(count_differing_lines(b"", b"\n") == 1);
+        assert!(count_differing_lines(b"A", b"") == 1);
+        assert!(count_differing_lines(b"A\n", b"A") == 1);
+        assert!(count_differing_lines(b"A\rB\r\nC\n", b"A\rB\r\nC\n") == 0);
     }
 
     #[test]

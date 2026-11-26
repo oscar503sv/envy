@@ -8,6 +8,7 @@ use super::{
         ConversionPolicy, EditCommand, EditError, SetValueOutcome, insert_assignment,
         remove_assignment, set_value,
     },
+    paste::StagedPaste,
     redact::Redacted,
 };
 
@@ -63,15 +64,18 @@ struct Entry {
 impl Entry {
     fn replay(&self, document: &mut EnvDocument, is_redo: bool) -> Result<(), EditError> {
         let mut staged = document.clone();
+        let positions = staged.node_positions();
         for change in &self.changes {
             let snapshot = if is_redo {
                 &change.after
             } else {
                 &change.before
             };
-            *staged
-                .node_mut(snapshot.id())
-                .ok_or(EditError::NodeNotFound)? = snapshot.clone();
+            let index = positions
+                .get(&snapshot.id())
+                .copied()
+                .ok_or(EditError::NodeNotFound)?;
+            *staged.node_at_mut(index).ok_or(EditError::NodeNotFound)? = snapshot.clone();
         }
         staged.check_invariants().map_err(EditError::Invariant)?;
         *document = staged;
@@ -135,34 +139,66 @@ impl EditHistory {
         self.apply_requests(requests, true)
     }
 
+    pub fn commit_paste(&mut self, paste: StagedPaste) -> Result<Option<EditCommand>, EditError> {
+        let (base, staged, commands) = paste.into_parts();
+        // Include IDs and tombstones because byte-identical documents can
+        // have different occurrence targets or reserved IDs.
+        if self.document != base {
+            return Err(EditError::StalePaste);
+        }
+        self.commit(staged, commands, true)
+    }
+
     fn apply_requests<'a>(
         &mut self,
         requests: impl IntoIterator<Item = EditRequest<'a>>,
         is_batch: bool,
     ) -> Result<Option<EditCommand>, EditError> {
         let mut staged = self.document.clone();
-        let mut ids = BTreeSet::new();
         let mut commands = Vec::new();
         for request in requests {
             if let Some(command) = request.apply(&mut staged)? {
-                record_affected_ids(&command, &mut ids);
                 commands.push(command);
             }
         }
+        self.commit(staged, commands, is_batch)
+    }
+
+    fn commit(
+        &mut self,
+        staged: EnvDocument,
+        mut commands: Vec<EditCommand>,
+        is_batch: bool,
+    ) -> Result<Option<EditCommand>, EditError> {
         if commands.is_empty() {
             return Ok(None);
         }
+        staged.check_invariants().map_err(EditError::Invariant)?;
+        let mut ids = BTreeSet::new();
+        for command in &commands {
+            record_affected_ids(command, &mut ids);
+        }
+        let staged_positions = staged.node_positions();
+        let base_positions = self.document.node_positions();
         let changes = ids
             .into_iter()
             .map(|id| {
-                let after = staged.node(id).ok_or(EditError::NodeNotFound)?.clone();
+                let after = staged_positions
+                    .get(&id)
+                    .and_then(|&index| staged.nodes().get(index))
+                    .ok_or(EditError::NodeNotFound)?
+                    .clone();
                 // Retain a tombstone for each undone insert. Its ID stays reserved
                 // even when another edit discards the redo stack.
-                let before = self.document.node(id).cloned().unwrap_or_else(|| {
-                    let mut inserted = after.clone();
-                    inserted.set_removed(true);
-                    inserted
-                });
+                let before = base_positions
+                    .get(&id)
+                    .and_then(|&index| self.document.nodes().get(index))
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        let mut inserted = after.clone();
+                        inserted.set_removed(true);
+                        inserted
+                    });
                 Ok(NodeChange { before, after })
             })
             .collect::<Result<_, EditError>>()?;

@@ -798,3 +798,152 @@ fn save_as_rejects_alias_of_original_after_external_replacement() {
     assert!(session.resource() == &original);
     assert!(session.is_dirty());
 }
+
+#[test]
+fn conflict_summary_reviews_reload_and_live_edits_without_mutating_session() {
+    use crate::domain::compare::{KeyChange, KeyChangeStatus};
+
+    let source = format!("{SENTINEL}={SENTINEL}\n");
+    let (storage, mut session) = open_with(source.as_bytes());
+    assert!(session.conflict_summary().is_none());
+    let disk = format!("{SENTINEL}=external\n");
+    let snapshot = change(&storage, &session, disk.as_bytes());
+    assert!(session.observe_external(Ok(snapshot.clone())) == Ok(ExternalChange::ReloadAvailable));
+    let changed = KeyChange {
+        key: Redacted::new(SENTINEL.to_owned()),
+        status: KeyChangeStatus::Changed,
+    };
+    assert!(
+        session.conflict_summary()
+            == Some(ConflictSummary::Structured {
+                changes: vec![changed.clone()],
+                differing_lines: 1,
+            })
+    );
+
+    edit(&mut session);
+    let summary = session.conflict_summary();
+    assert!(
+        summary
+            == Some(ConflictSummary::Structured {
+                changes: vec![
+                    KeyChange {
+                        key: Redacted::new("B".to_owned()),
+                        status: KeyChangeStatus::Added,
+                    },
+                    changed
+                ],
+                differing_lines: 2,
+            })
+    );
+    assert!(!format!("{summary:#?}").contains(SENTINEL));
+    assert!(session.is_dirty() && session.is_conflicted());
+    assert!(session.external_snapshot() == Some(&snapshot));
+    assert!(bytes(&session) == format!("{source}B=local\n").as_bytes());
+}
+
+#[test]
+fn conflict_summary_counts_lines_when_either_side_is_protected() {
+    for (local, disk) in [(ORIGINAL, &b"A=\xff\n"[..]), (&b"A=\xff\n"[..], ORIGINAL)] {
+        let (storage, mut session) = open_with(local);
+        let snapshot = change(&storage, &session, disk);
+        assert!(session.observe_external(Ok(snapshot)) == Ok(ExternalChange::ReloadAvailable));
+        assert!(
+            session.conflict_summary() == Some(ConflictSummary::LinesOnly { differing_lines: 1 })
+        );
+    }
+}
+
+#[test]
+fn paste_replays_multiline_and_selected_occurrence_as_one_edit() {
+    use crate::domain::paste::{PasteDecision, PastePlan};
+
+    let original = b"A=first\r\n# separator\r\nA=second";
+    let (_, mut session) = open_with(original);
+    let clipboard = format!("export A = '{SENTINEL}' # keep\nB=\"line\n${{A}}\"");
+    let mut plan = PastePlan::new(session.document().unwrap(), &clipboard).unwrap();
+    let replacement = session.document().unwrap().nodes().last().unwrap().id();
+    plan.decide(1, PasteDecision::ReplaceOccurrence(replacement))
+        .unwrap();
+    let paste = plan.finish().unwrap();
+    assert!(!format!("{paste:#?}").contains(SENTINEL));
+    let command = session.apply_paste(paste).unwrap();
+    assert!(!format!("{command:#?}").contains(SENTINEL));
+    assert!(matches!(command, Some(EditCommand::Batch(edits)) if edits.len() == 2));
+    let expected =
+        format!("A=first\r\n# separator\r\nexport A = '{SENTINEL}' # keep\r\nB=\"line\r\n${{A}}\"");
+    assert!(bytes(&session) == expected.as_bytes());
+    assert!(session.is_dirty());
+    assert!(session.undo().unwrap());
+    assert!(bytes(&session) == original);
+    assert!(!session.is_dirty());
+    assert!(!session.undo().unwrap());
+    assert!(session.redo().unwrap());
+    assert!(bytes(&session) == expected.as_bytes());
+    assert!(session.is_dirty());
+    assert!(!session.redo().unwrap());
+}
+
+#[test]
+fn paste_rejects_stale_previews_without_changing_history() {
+    use crate::domain::paste::PastePlan;
+
+    let (_, mut session) = open();
+    let clipboard = format!("C={SENTINEL}");
+    let paste = PastePlan::new(session.document().unwrap(), &clipboard)
+        .unwrap()
+        .finish()
+        .unwrap();
+    edit(&mut session);
+    let error = session.apply_paste(paste).unwrap_err();
+    assert!(error == SessionError::EditRejected);
+    assert!(!format!("{error:?} {error}").contains(SENTINEL));
+    assert!(bytes(&session) == EDITED);
+    assert!(!session.can_redo());
+    assert!(session.undo().unwrap());
+    assert!(bytes(&session) == ORIGINAL);
+    assert!(!session.can_undo());
+}
+
+#[test]
+fn paste_finish_requires_confirmation_and_resolved_decisions() {
+    use crate::domain::paste::{PasteError, PastePlan};
+
+    let (_, session) = open();
+    let document = session.document().unwrap();
+    let mut cancelled = PastePlan::new(document, "B=valid").unwrap();
+    cancelled.cancel();
+    assert!(matches!(cancelled.finish(), Err(PasteError::Cancelled)));
+    let unresolved = PastePlan::new(document, "A=conflict").unwrap();
+    assert!(matches!(
+        unresolved.finish(),
+        Err(PasteError::Unresolved { line: 1 })
+    ));
+    let partial = PastePlan::new(document, "B=valid\ninvalid").unwrap();
+    assert!(matches!(
+        partial.finish(),
+        Err(PasteError::PartialConfirmationRequired)
+    ));
+    assert!(bytes(&session) == ORIGINAL);
+    assert!(!session.can_undo());
+}
+
+#[test]
+fn paste_respects_session_edit_guards() {
+    use crate::domain::paste::PastePlan;
+
+    let (_, mut session) = open();
+    let staged = |session: &DocumentSession| {
+        PastePlan::new(session.document().unwrap(), "B=valid")
+            .unwrap()
+            .finish()
+            .unwrap()
+    };
+    let (_, mut protected) = open_with(b"A=\xff");
+    assert!(protected.apply_paste(staged(&session)) == Err(SessionError::Protected));
+    let paste = staged(&session);
+    session.is_saving = true;
+    assert!(session.apply_paste(paste) == Err(SessionError::Saving));
+    assert!(bytes(&session) == ORIGINAL);
+    assert!(!session.can_undo());
+}

@@ -3,10 +3,12 @@
 use std::{fmt, sync::Arc};
 
 use crate::domain::{
+    compare::{ConflictSummary, compare_conflict, count_differing_lines},
     document::EnvDocument,
     edit::EditCommand,
     history::{EditHistory, EditRequest},
     parser::parse,
+    paste::StagedPaste,
     redact::Redacted,
 };
 
@@ -175,6 +177,30 @@ impl DocumentSession {
         self.external.as_ref()
     }
 
+    /// Reviews the last observed disk snapshot while a conflict or reload is
+    /// pending. Protected content or a disk snapshot with raw nodes permits
+    /// only a byte-level line count.
+    pub fn conflict_summary(&self) -> Option<ConflictSummary> {
+        let snapshot = self.external_snapshot()?;
+        if !self.is_conflicted() && snapshot.version.hash == self.baseline.hash {
+            return None;
+        }
+
+        let disk = snapshot.bytes.expose();
+        if let Some(local) = self.document() {
+            return Some(match parse(disk.clone()) {
+                Ok(disk) => compare_conflict(local, &disk),
+                Err(_) => ConflictSummary::LinesOnly {
+                    differing_lines: count_differing_lines(&local.serialize(), disk),
+                },
+            });
+        }
+        self.protected_bytes()
+            .map(|local| ConflictSummary::LinesOnly {
+                differing_lines: count_differing_lines(local.expose(), disk),
+            })
+    }
+
     pub fn is_dirty(&self) -> bool {
         self.content.history().is_some_and(EditHistory::is_dirty)
     }
@@ -239,6 +265,12 @@ impl DocumentSession {
     ) -> Result<Option<EditCommand>, SessionError> {
         self.editable_history()?
             .apply_batch(requests)
+            .map_err(|_| SessionError::EditRejected)
+    }
+
+    pub fn apply_paste(&mut self, paste: StagedPaste) -> Result<Option<EditCommand>, SessionError> {
+        self.editable_history()?
+            .commit_paste(paste)
             .map_err(|_| SessionError::EditRejected)
     }
 

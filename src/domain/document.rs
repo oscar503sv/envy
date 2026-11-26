@@ -165,6 +165,20 @@ impl EnvDocument {
         self.nodes.iter_mut().find(|node| node.id == id)
     }
 
+    /// Maps each node ID to its position so that batch operations touching
+    /// many nodes avoid one linear search per node.
+    pub(crate) fn node_positions(&self) -> std::collections::HashMap<NodeId, usize> {
+        self.nodes
+            .iter()
+            .enumerate()
+            .map(|(index, node)| (node.id, index))
+            .collect()
+    }
+
+    pub(crate) fn node_at_mut(&mut self, index: usize) -> Option<&mut EnvNode> {
+        self.nodes.get_mut(index)
+    }
+
     /// Appends an original node. Use check_invariants to validate the spans.
     pub fn push_source_node(
         &mut self,
