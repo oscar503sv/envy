@@ -12,7 +12,10 @@ Editor nativo de GNOME para archivos `.env`, en Rust (GTK4/libadwaita). Este arc
 ## Roles y modelos
 
 - **Orquestador** (modelo principal, Opus): planifica, redacta los briefs, revisa todo lo que entregan los subagentes, ejecuta las comprobaciones y habla con el usuario. Nunca da por buena una entrega sin revisar el diff y ejecutar las pruebas.
-- **Implementación**: GPT-6.2-Sol vía `delegate_task` (proveedor `codex`, rol `implementation`, asíncrono). No tiene red: si hacen falta crates nuevos, descárgalos tú antes (`cargo fetch`).
+- **Implementación** (dos modelos, ambos vía `delegate_task` con rol `implementation` y en modo asíncrono):
+  - GPT-6.2-Sol (proveedor `codex`, modelo `gpt-6.2-sol`). No tiene red: si hacen falta crates nuevos, descárgalos tú antes (`cargo fetch`).
+  - DeepSeek V4.1 Flash por OpenCode Go (proveedor `opencode`, modelo `opencode-go/deepseek-v4.1-flash`).
+  - **Árbol de trabajo:** las tareas pequeñas o seguidas se hacen en el árbol principal, una detrás de otra. Las tareas que corren de verdad en paralelo (por ejemplo, una por modelo) van cada una en su propio worktree (`delegate_task` con `isolation: "worktree"`). Así ningún agente pisa ni compila el trabajo a medias de otro. El orquestador revisa cada rama por separado, ejecuta las comprobaciones sobre ella y la integra en `main` con permiso del usuario. Si dos agentes comparten el árbol por excepción, el brief les asigna archivos distintos.
 - **QA**: GLM-5.3 vía `delegate_task` (proveedor `opencode`, modelo `opencode-go/glm-5.3`, rol `test`), en solo lectura y sobre una copia del repo.
 - **Seguridad**: subagente nativo `cybersecurity-engineer` en primer plano. Obligatorio cuando la tarea toca archivos, datos sensibles, validación de entrada o configuración de seguridad, o cuando el backlog lo lista en «Agentes».
 - Cada revisión o re-verificación es un `delegate_task` nuevo; no reutilices un hilo ya terminado. Los hallazgos pequeños los corrige el orquestador directamente.

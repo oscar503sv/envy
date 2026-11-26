@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Product Backlog
 
-> **Estado:** plan en ejecución (generado 2026-11-20). **Progreso a 2026-11-25:** 31 de 88 tareas en `Done`: S01–S05 completos, incluidos los spikes ENV-T001, ENV-T025 y ENV-T054. El campo «Estado» de cada tarea y sus casillas de criterios reflejan el seguimiento en Orbit y Linear.  
+> **Estado:** plan en ejecución (generado 2026-11-20). **Progreso a 2026-11-25:** 33 de 88 tareas en `Done`: S01–S05 completos, incluidos los spikes ENV-T001, ENV-T025 y ENV-T054; en S06, ENV-T021 y ENV-T032. El campo «Estado» de cada tarea y sus casillas de criterios reflejan el seguimiento en Orbit y Linear.  
 > **Fuentes:** [`docs/PRD.md`](../PRD.md) v1.1 y [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md) v1.1. Ante discrepancia de alcance prevalece el PRD (PRD, nota final).  
 > **Documentos relacionados:** [ROADMAP](ROADMAP.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [MILESTONES](MILESTONES.md) · [RISKS](RISKS.md) · [DEFINITION_OF_DONE](DEFINITION_OF_DONE.md) · [DECISIONS](DECISIONS.md) · [TASK_TEMPLATE](TASK_TEMPLATE.md)
 
@@ -706,17 +706,17 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T011, ENV-T019, ENV-T020 |
 | Bloquea a | ENV-T050, ENV-T068, ENV-T070 |
 | Sprint propuesto | S06 (2026-12-28 → 2027-01-01) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA, Security Reviewer |
 | Entregables / archivos | src/domain/edit.rs o src/services/document_service.rs (paste) |
 
 **Descripción.** Parsea el texto pegado con el mismo parser en un documento temporal; clasifica entradas válidas e inválidas (con número de línea); detecta claves existentes (0, 1 o n ocurrencias); produce un PastePlan que exige decisiones (añadir, reemplazar ocurrencia elegida, cancelar) y genera un único Batch solo cuando todas están resueltas. Inserción parcial solo con confirmación explícita.
 
 **Criterios de aceptación**
-- [ ] Nunca se reemplaza automáticamente por nombre; con varias ocurrencias no se infiere cuál.
-- [ ] Con líneas no interpretables, el plan no es aplicable sin la confirmación de insertar solo las válidas.
-- [ ] Asignaciones multilínea pegadas se conservan; el lote resultante se deshace en una operación.
-- [ ] El contenido pegado se trata como datos; nada se expande.
+- [x] Nunca se reemplaza automáticamente por nombre; con varias ocurrencias no se infiere cuál.
+- [x] Con líneas no interpretables, el plan no es aplicable sin la confirmación de insertar solo las válidas.
+- [x] Asignaciones multilínea pegadas se conservan; el lote resultante se deshace en una operación.
+- [x] El contenido pegado se trata como datos; nada se expande.
 
 **Pruebas:** Tests unitarios por cada viñeta de PRD US-03 sobre pegado.
 
@@ -1031,15 +1031,15 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T029, ENV-T023 |
 | Bloquea a | ENV-T042 |
 | Sprint propuesto | S06 (2026-12-28 → 2027-01-01) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA, Security Reviewer |
 | Entregables / archivos | src/services/document_service.rs o src/domain/compare.rs |
 
 **Descripción.** Compara la versión local en memoria con el snapshot de disco: claves añadidas, eliminadas y cambiadas (comparando valores solo en memoria) y diferencia de líneas. La salida solo contiene nombres de clave y estado, nunca valores.
 
 **Criterios de aceptación**
-- [ ] El resumen distingue añadidas/eliminadas/cambiadas y cuenta líneas distintas.
-- [ ] Ningún valor aparece en la estructura de salida ni en su Debug.
+- [x] El resumen distingue añadidas/eliminadas/cambiadas y cuenta líneas distintas.
+- [x] Ningún valor aparece en la estructura de salida ni en su Debug.
 
 **Pruebas:** Tests unitarios con centinela.
 
@@ -1299,6 +1299,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 
 **Heredado del QA de ENV-T029 (2026-11-22):** un conflicto cuyo hash no cambió (chmod, touch, rename externos) es solo de metadatos: presentarlo como tal, no como conflicto de contenido; se resuelve con la sobrescritura confirmada de la versión revisada. El conflicto no se limpia al deshacer hasta quedar limpio; solo lo limpian una observación igual a la base, recargar, sobrescribir confirmado o guardar como.
 
+**Heredado de ENV-T032 (2026-11-25):** `DocumentSession::conflict_summary()` devuelve claves redactadas con su estado (añadida, eliminada, cambiada) y el número de líneas distintas, o solo el número de líneas si algún lado tiene nodos `Raw` o la sesión está protegida. Vuelve a parsear y serializar en cada llamada (~0,5 s con 8 MiB en release): calcularlo una vez por snapshot y fuera del hilo de GTK.
+
 <a id="env-t043"></a>
 #### ENV-T043 — Implementar el aviso de enlace simbólico y la selección explícita del destino
 
@@ -1493,6 +1495,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Aplicar se deshace con un único Ctrl+Z.
 
 **Pruebas:** Prueba manual con bloques válidos, multilínea y mixtos.
+
+**Heredado de ENV-T021 (2026-11-25):** el núcleo expone `PastePlan` (decisiones, `confirm_partial`, `cancel`, `finish` → `StagedPaste`) y `DocumentSession::apply_paste`, que registra el pegado como un solo paso del historial. (1) Leer el portapapeles de forma acotada (límite de 1 MiB, `MAX_PASTE_BYTES`) antes de construir el plan, para no reservar memoria sin límite. (2) Tras cualquier edición, deshacer o rehacer, el plan previo se rechaza como obsoleto (`EditRejected`) aunque los bytes coincidan: el diálogo debe recrear el plan. (3) Refrescar la vista desde el documento confirmado; los bytes `after` de cada comando del lote pueden no estar vigentes. (4) Confirmar pegados grandes fuera del hilo principal o con indicador de progreso (150 000 líneas ≈ 1,4 s en debug).
 
 <a id="env-t051"></a>
 #### ENV-T051 — Implementar la resolución de duplicados y líneas inválidas en el pegado
