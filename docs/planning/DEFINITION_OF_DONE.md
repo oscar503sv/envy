@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Definition of Ready, Definition of Done y criterios de release
 
-> **Estado:** propuesta pendiente de aprobación.  
+> **Estado:** aprobada por el usuario (2026-11-25).  
 > **Base:** PRD §10 (métricas de calidad), §11 (criterio de salida), §14 (DoD del producto); TD §14 (estrategia de pruebas).  
 > **Relacionados:** [BACKLOG](BACKLOG.md) · [MILESTONES](MILESTONES.md) · [TASK_TEMPLATE](TASK_TEMPLATE.md)
 

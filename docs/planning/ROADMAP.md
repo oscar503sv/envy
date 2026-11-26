@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Roadmap
 
-> **Estado:** plan v2 (2026-11-20), replanificado con 41 h/semana confirmadas (D-02). Fechas **estimadas**, no comprometidas; pendiente de aprobación.  
+> **Estado:** plan v2 (2026-11-20), replanificado con 41 h/semana confirmadas (D-02). Aprobado por el usuario (2026-11-25); las fechas siguen siendo **estimadas**, no comprometidas.  
 > **Fuentes:** [`docs/PRD.md`](../PRD.md) v1.1 (alcance) y [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md) v1.1 (implementación).  
 > **Documentos:** [BACKLOG](BACKLOG.md) (tareas) · [SPRINT_PLAN](SPRINT_PLAN.md) (calendario) · [MILESTONES](MILESTONES.md) (hitos) · [RISKS](RISKS.md) · [DEFINITION_OF_DONE](DEFINITION_OF_DONE.md) · [DECISIONS](DECISIONS.md) · [TASK_TEMPLATE](TASK_TEMPLATE.md)
 

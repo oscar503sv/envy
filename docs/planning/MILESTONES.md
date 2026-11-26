@@ -1,7 +1,7 @@
 # Envy v0.1.0 — Hitos
 
 > **Estado de todas las fechas:** **estimadas** a partir de [SPRINT_PLAN.md](SPRINT_PLAN.md) (plan v2) con capacidad **confirmada** de 41 h/semana brutas (D-02 resuelta) y reserva del 20 %. **Ninguna es un compromiso aprobado.**  
-> **Progreso (2026-11-25):** M1 tiene todas sus tareas en `Done` (S01–S04); falta la aceptación formal del usuario según DoD §4. M2 avanza: S05 completo, quedan las tareas de S06.  
+> **Progreso (2026-11-25):** **M1 cumplido**: todas sus tareas en `Done` (S01–S04) y aceptado por el usuario el 2026-11-25 (DoD §4). M2 avanza: S05 completo, quedan las tareas de S06.  
 > Un hito se cumple cuando todos sus criterios de salida tienen evidencia y el usuario lo acepta ([DEFINITION_OF_DONE.md §4](DEFINITION_OF_DONE.md#4-definition-of-done--hito)).
 
 ## 1. Resumen
