@@ -1,6 +1,6 @@
 # Envy v0.1.0 — Product Backlog
 
-> **Estado:** borrador de planificación pendiente de aprobación (generado 2026-11-20).  
+> **Estado:** plan en ejecución (generado 2026-11-20). **Progreso a 2026-11-25:** 31 de 88 tareas en `Done`: S01–S05 completos, incluidos los spikes ENV-T001, ENV-T025 y ENV-T054. El campo «Estado» de cada tarea y sus casillas de criterios reflejan el seguimiento en Orbit y Linear.  
 > **Fuentes:** [`docs/PRD.md`](../PRD.md) v1.1 y [`docs/TECHNICAL_DESIGN.md`](../TECHNICAL_DESIGN.md) v1.1. Ante discrepancia de alcance prevalece el PRD (PRD, nota final).  
 > **Documentos relacionados:** [ROADMAP](ROADMAP.md) · [SPRINT_PLAN](SPRINT_PLAN.md) · [MILESTONES](MILESTONES.md) · [RISKS](RISKS.md) · [DEFINITION_OF_DONE](DEFINITION_OF_DONE.md) · [DECISIONS](DECISIONS.md) · [TASK_TEMPLATE](TASK_TEMPLATE.md)
 
@@ -181,16 +181,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | Ninguna |
 | Bloquea a | ENV-T025, ENV-T033, ENV-T054 |
 | Sprint propuesto | S01 (2026-11-23 → 2026-11-27) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Explorador, Implementador |
 | Entregables / archivos | Propuesta de versiones y sistema de build anotada en docs/planning/DECISIONS.md (D-05, D-06, D-09, D-32); prototipo desechable fuera de main. |
 
 **Descripción.** Spike con timebox de 4 h. Hipótesis: existe una combinación Rust estable (edición 2024) + gtk4-rs + libadwaita-rs + runtime GNOME de Flathub que compila una ventana Adw mínima en nativo y con el SDK Flatpak, con una versión de libadwaita que incluye los widgets previstos (AdwNavigationSplitView, AdwToolbarView, AdwAlertDialog). El código del spike es desechable y no se integra en main.
 
 **Criterios de aceptación**
-- [ ] Tabla propuesta: versión de Rust/edición, gtk4-rs, libadwaita-rs, libadwaita mínima y runtime GNOME, con fuente de cada dato.
-- [ ] Ventana AdwApplicationWindow mínima compilada y ejecutada en nativo (evidencia: comando y salida).
-- [ ] Recomendación Cargo+build.rs vs Meson con trade-offs; criterio de salida: decisión propuesta al usuario.
+- [x] Tabla propuesta: versión de Rust/edición, gtk4-rs, libadwaita-rs, libadwaita mínima y runtime GNOME, con fuente de cada dato.
+- [x] Ventana AdwApplicationWindow mínima compilada y ejecutada en nativo (evidencia: comando y salida).
+- [x] Recomendación Cargo+build.rs vs Meson con trade-offs; criterio de salida: decisión propuesta al usuario.
 
 **Pruebas:** Build y ejecución manual del prototipo nativo; build con SDK Flatpak si está disponible.
 
@@ -208,16 +208,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | Ninguna |
 | Bloquea a | ENV-T003, ENV-T004, ENV-T008, ENV-T024, ENV-T025, ENV-T033 |
 | Sprint propuesto | S01 (2026-11-23 → 2026-11-27) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | Cargo.toml, Cargo.lock, src/main.rs, src/{domain,services,infrastructure,ui}/mod.rs, rustfmt.toml, .gitignore |
 
 **Descripción.** Crate único con módulos domain/, services/, infrastructure/, ui/ (vacíos o con stubs), Cargo.lock versionado, configuración rustfmt/clippy y .gitignore. Sin dependencias GTK todavía: el núcleo debe compilar y testearse sin GTK.
 
 **Criterios de aceptación**
-- [ ] cargo build, cargo test, cargo fmt --check y cargo clippy -- -D warnings en verde.
-- [ ] cargo tree muestra que domain/ no arrastra gtk4/libadwaita.
-- [ ] Estructura coincide con TD §4 o la desviación queda justificada.
+- [x] cargo build, cargo test, cargo fmt --check y cargo clippy -- -D warnings en verde.
+- [x] cargo tree muestra que domain/ no arrastra gtk4/libadwaita.
+- [x] Estructura coincide con TD §4 o la desviación queda justificada.
 
 **Pruebas:** Ejecución local de build/test/fmt/clippy (evidencia en la tarea).
 
@@ -233,16 +233,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T002 |
 | Bloquea a | ENV-T005 |
 | Sprint propuesto | S02 (2026-11-30 → 2026-12-04) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | Workflow de CI (ruta según D-23, p. ej. .github/workflows/ci.yml) |
 
 **Descripción.** Pipeline en runner Linux que ejecuta cargo fmt --check, cargo clippy -- -D warnings y cargo test sobre el núcleo sin GTK, con caché de dependencias.
 
 **Criterios de aceptación**
-- [ ] El pipeline corre en cada push/PR y queda en verde sobre main.
-- [ ] Un warning de clippy introducido a propósito en una rama hace fallar el pipeline (evidencia).
-- [ ] Los tiempos de ejecución quedan anotados para vigilar su crecimiento.
+- [x] El pipeline corre en cada push/PR y queda en verde sobre main.
+- [x] Un warning de clippy introducido a propósito en una rama hace fallar el pipeline (evidencia).
+- [x] Los tiempos de ejecución quedan anotados para vigilar su crecimiento.
 
 **Pruebas:** Ejecución real del pipeline en una rama de prueba.
 
@@ -262,16 +262,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T002 |
 | Bloquea a | ENV-T008, ENV-T015, ENV-T026, ENV-T033, ENV-T055 |
 | Sprint propuesto | S01 (2026-11-23 → 2026-11-27) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA, Security Reviewer |
 | Entregables / archivos | src/domain/error.rs (o equivalente por capa), módulo de redacción, documentación de módulo |
 
 **Descripción.** Errores de dominio con thiserror que nunca transportan valores ni contenido de archivo (solo línea, tipo de nodo, URI visible). Envoltorio `Redacted<T>` o Debug manual para tipos con valores. Reglas de uso de tracing documentadas en el módulo (qué se puede registrar). Política de panic sin contenido.
 
 **Criterios de aceptación**
-- [ ] format!("{:?}") y Display de errores y tipos con valores no contienen el valor centinela de prueba.
-- [ ] La política lista explícitamente qué campos se pueden registrar y cuáles no.
-- [ ] Ningún tipo con valores deriva Debug automáticamente sin redacción.
+- [x] format!("{:?}") y Display de errores y tipos con valores no contienen el valor centinela de prueba.
+- [x] La política lista explícitamente qué campos se pueden registrar y cuáles no.
+- [x] Ningún tipo con valores deriva Debug automáticamente sin redacción.
 
 **Pruebas:** Tests unitarios con valor centinela sobre Debug/Display de errores y tipos de dominio.
 
@@ -316,16 +316,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | Ninguna |
 | Bloquea a | ENV-T007, ENV-T008, ENV-T014 |
 | Sprint propuesto | S01 (2026-11-23 → 2026-11-27) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | docs/SYNTAX.md (ruta propuesta, nuevo documento de implementación) |
 
 **Descripción.** Documento normativo del subconjunto soportado: regex de clave, espacios alrededor de =, prefijo export, fin de valor sin comillas, comentario final inequívoco, reglas de comillas simples/dobles y escapes (base del ValueCodec), cierre de multilínea, comillas sin cerrar, BOM, CR/LF/CRLF, valor vacío, casos Raw, estilo de salto de línea para contenido insertado y regla de newline final. Incluye lista de preguntas abiertas para aprobación del usuario.
 
 **Criterios de aceptación**
-- [ ] Cada fila de TD §5.3 tiene una regla explícita y un fixture asociado.
-- [ ] Ninguna regla contradice PRD US-02; los casos dudosos se resuelven hacia Raw.
-- [ ] Las preguntas abiertas quedan listadas en DECISIONS.md (D-11) para aprobación.
+- [x] Cada fila de TD §5.3 tiene una regla explícita y un fixture asociado.
+- [x] Ninguna regla contradice PRD US-02; los casos dudosos se resuelven hacia Raw.
+- [x] Las preguntas abiertas quedan listadas en DECISIONS.md (D-11) para aprobación.
 
 **Pruebas:** Revisión cruzada contra PRD/TD por QA (no hay código).
 
@@ -343,16 +343,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T006 |
 | Bloquea a | ENV-T010, ENV-T012 |
 | Sprint propuesto | S01 (2026-11-23 → 2026-11-27) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | tests/fixtures/*, tests/fixtures/expected/*, .gitattributes |
 
 **Descripción.** Los 16 fixtures de TD §14.1 más los casos de la especificación (solo CR, variantes de export, comilla sin cerrar en medio, # dentro de comillas, KEY=$OTHER literal, claves con punto/guion como Raw). Archivos binario-exactos protegidos con .gitattributes (-text) para evitar normalización de EOL. Valores secretos ficticios con un centinela reconocible para las pruebas de fuga. Descriptor esperado de tipos de nodo por fixture.
 
 **Criterios de aceptación**
-- [ ] Git no altera bytes de los fixtures (verificado con hexdump antes/después de checkout).
-- [ ] Cada fixture está referenciado en docs/SYNTAX.md y tiene descriptor de nodos esperado.
-- [ ] Los valores secretos de fixtures usan el centinela acordado y no son secretos reales.
+- [x] Git no altera bytes de los fixtures (verificado con hexdump antes/después de checkout).
+- [x] Cada fixture está referenciado en docs/SYNTAX.md y tiene descriptor de nodos esperado.
+- [x] Los valores secretos de fixtures usan el centinela acordado y no son secretos reales.
 
 **Pruebas:** Verificación de bytes con hexdump/sha256 tras clonar en limpio.
 
@@ -368,16 +368,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T002, ENV-T006, ENV-T004 |
 | Bloquea a | ENV-T009, ENV-T022, ENV-T026 |
 | Sprint propuesto | S01 (2026-11-23 → 2026-11-27) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/document.rs, src/domain/syntax.rs |
 
 **Descripción.** Tipos EnvDocument, EnvNode, NodeKind (Assignment/Comment/Blank/Raw), AssignmentSyntax, QuoteStyle e IDs de ocurrencia estables. Semántica de spans absoluta, origen Source(span) o Synthetic para nodos insertados, y función check_invariants usada en tests. Tipos con valores con Debug redactado (T004).
 
 **Criterios de aceptación**
-- [ ] Las invariantes 1, 3 y 4 de TD §5.2 se comprueban con check_invariants.
-- [ ] Los nodos insertados no tienen span original y se distinguen por tipo.
-- [ ] Debug de documentos y nodos no imprime valores.
+- [x] Las invariantes 1, 3 y 4 de TD §5.2 se comprueban con check_invariants.
+- [x] Los nodos insertados no tienen span original y se distinguen por tipo.
+- [x] Debug de documentos y nodos no imprime valores.
 
 **Pruebas:** Tests unitarios de invariantes y de Debug redactado.
 
@@ -395,16 +395,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T008 |
 | Bloquea a | ENV-T010 |
 | Sprint propuesto | S01 (2026-11-23 → 2026-11-27) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/syntax.rs (lexer de líneas) |
 
 **Descripción.** Divide el flujo en líneas físicas con su terminador exacto (LF, CRLF, CR, mixtos, sin newline final), conserva el BOM sin normalizarlo y rechaza la edición estructurada de UTF-8 no válido con un error que indica posición, sin contenido.
 
 **Criterios de aceptación**
-- [ ] La concatenación de segmentos reproduce la entrada exacta para cualquier secuencia de bytes.
-- [ ] utf8-bom.env conserva el BOM; mixed-newlines.env conserva cada terminador.
-- [ ] invalid-utf8.bin devuelve error de edición estructurada sin modificar ni copiar bytes al mensaje.
+- [x] La concatenación de segmentos reproduce la entrada exacta para cualquier secuencia de bytes.
+- [x] utf8-bom.env conserva el BOM; mixed-newlines.env conserva cada terminador.
+- [x] invalid-utf8.bin devuelve error de edición estructurada sin modificar ni copiar bytes al mensaje.
 
 **Pruebas:** Tests unitarios por tipo de terminador, BOM, archivo vacío y UTF-8 inválido.
 
@@ -420,16 +420,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T009, ENV-T007 |
 | Bloquea a | ENV-T011, ENV-T012, ENV-T020, ENV-T023 |
 | Sprint propuesto | S02 (2026-11-30 → 2026-12-04) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/syntax.rs |
 
 **Descripción.** Reconoce KEY=value, espacios alrededor de =, export, valores sin comillas, simples, dobles, vacíos y comentario final inequívoco; comentarios y líneas vacías; todo lo demás como Raw. value_span exacto, sin comillas ni sufijo. $VAR, ${VAR} y $(cmd) son texto literal.
 
 **Criterios de aceptación**
-- [ ] La secuencia de tipos de nodo coincide con el descriptor esperado de cada fixture de una línea.
-- [ ] value_span excluye comillas y comentario final; el sufijo se conserva.
-- [ ] Claves fuera de ^[A-Za-z_][A-Za-z0-9_]*$ producen Raw; nada se expande ni ejecuta.
+- [x] La secuencia de tipos de nodo coincide con el descriptor esperado de cada fixture de una línea.
+- [x] value_span excluye comillas y comentario final; el sufijo se conserva.
+- [x] Claves fuera de ^[A-Za-z_][A-Za-z0-9_]*$ producen Raw; nada se expande ni ejecuta.
 
 **Pruebas:** Tests unitarios por fila de TD §5.3 y tests de descriptor por fixture.
 
@@ -445,16 +445,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T010 |
 | Bloquea a | ENV-T012, ENV-T014, ENV-T021 |
 | Sprint propuesto | S02 (2026-11-30 → 2026-12-04) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/syntax.rs |
 
 **Descripción.** Detecta el cierre real de comillas según las reglas de escape de la especificación; un nodo de asignación abarca varias líneas físicas sin romper spans. Comillas sin cerrar se tratan según la regla aprobada (Raw acotado, sin tragarse el resto del archivo si así se decide).
 
 **Criterios de aceptación**
-- [ ] quoted-multiline.env y unclosed-quotes.env producen los nodos esperados.
-- [ ] Terminadores mixtos dentro de un valor multilínea se conservan.
-- [ ] Ninguna entrada provoca panic (incluido EOF dentro de comillas).
+- [x] quoted-multiline.env y unclosed-quotes.env producen los nodos esperados.
+- [x] Terminadores mixtos dentro de un valor multilínea se conservan.
+- [x] Ninguna entrada provoca panic (incluido EOF dentro de comillas).
 
 **Pruebas:** Tests unitarios de casos límite: escape antes de la comilla, comilla al final de archivo, CRLF interno.
 
@@ -470,16 +470,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T010, ENV-T011, ENV-T007 |
 | Bloquea a | ENV-T013, ENV-T015, ENV-T016, ENV-T017, ENV-T018 |
 | Sprint propuesto | S02 (2026-11-30 → 2026-12-04) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/document.rs (serialize), tests/fidelity.rs |
 
 **Descripción.** `serialize(&EnvDocument) -> Vec<u8>` como función pura y tests/fidelity.rs que recorre todos los fixtures UTF-8 comparando bytes. Los mensajes de fallo informan solo offset y longitud de la primera diferencia, nunca contenido (PRD §10, logs sin secretos).
 
 **Criterios de aceptación**
-- [ ] serialize(parse(bytes)) == bytes para el 100 % de fixtures UTF-8 admitidos.
-- [ ] Un fallo provocado muestra offset/longitud y no bytes del fixture.
-- [ ] El serializador no normaliza BOM, EOL ni espacios.
+- [x] serialize(parse(bytes)) == bytes para el 100 % de fixtures UTF-8 admitidos.
+- [x] Un fallo provocado muestra offset/longitud y no bytes del fixture.
+- [x] El serializador no normaliza BOM, EOL ni espacios.
 
 **Pruebas:** tests/fidelity.rs; test negativo que verifica el formato del mensaje de fallo.
 
@@ -495,16 +495,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T012 |
 | Bloquea a | Ninguna |
 | Sprint propuesto | S02 (2026-11-30 → 2026-12-04) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | tests/properties.rs (o módulo de tests), fixtures de regresión |
 
 **Descripción.** Generadores de líneas tipo dotenv y de bytes arbitrarios: roundtrip idéntico para UTF-8 válido, rechazo sin panic para UTF-8 inválido. Los casos mínimos encontrados se guardan como fixtures de regresión.
 
 **Criterios de aceptación**
-- [ ] Roundtrip verificado con un número de casos configurado (alto en local, reducido en CI).
-- [ ] El parser nunca hace panic con entradas arbitrarias.
-- [ ] Todo contraejemplo encontrado queda como fixture permanente.
+- [x] Roundtrip verificado con un número de casos configurado (alto en local, reducido en CI).
+- [x] El parser nunca hace panic con entradas arbitrarias.
+- [x] Todo contraejemplo encontrado queda como fixture permanente.
 
 **Pruebas:** Ejecución de proptest local y en CI.
 
@@ -522,16 +522,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T006, ENV-T011 |
 | Bloquea a | ENV-T016, ENV-T037, ENV-T049 |
 | Sprint propuesto | S03 (2026-12-07 → 2026-12-11) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/syntax.rs o src/domain/codec.rs |
 
 **Descripción.** `decode(raw, style) -> texto` y `encode(texto, style) -> Result<bytes, NeedsConversion o Unrepresentable>`. Si el valor original contiene secuencias ambiguas según la especificación, se marca como no editable en lugar de adivinar. Los valores no editados nunca se recodifican.
 
 **Criterios de aceptación**
-- [ ] Para cada valor de fixture editable, encode(decode(v)) reproduce los bytes originales.
-- [ ] Valores no representables en el estilo actual devuelven NeedsConversion o Unrepresentable, nunca una codificación silenciosa.
-- [ ] Valores con escapes ambiguos se marcan como no editables.
+- [x] Para cada valor de fixture editable, encode(decode(v)) reproduce los bytes originales.
+- [x] Valores no representables en el estilo actual devuelven NeedsConversion o Unrepresentable, nunca una codificación silenciosa.
+- [x] Valores con escapes ambiguos se marcan como no editables.
 
 **Pruebas:** Tests tabulares por estilo (sin comillas, simple, doble, multilínea) con casos límite.
 
@@ -551,15 +551,15 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T012, ENV-T004 |
 | Bloquea a | Ninguna |
 | Sprint propuesto | S03 (2026-12-07 → 2026-12-11) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, Security Reviewer |
 | Entregables / archivos | examples/roundtrip.rs |
 
 **Descripción.** Binario de ejemplo (no distribuido) que lee un archivo real, informa número de nodos por tipo y resultado del roundtrip (OK u offset de diferencia). Nunca imprime valores.
 
 **Criterios de aceptación**
-- [ ] Sobre un archivo con secretos ficticios, la salida no contiene ningún valor.
-- [ ] No se instala ni empaqueta con la aplicación.
+- [x] Sobre un archivo con secretos ficticios, la salida no contiene ningún valor.
+- [x] No se instala ni empaqueta con la aplicación.
 
 **Pruebas:** Ejecución manual sobre fixtures y sobre un archivo con centinela.
 
@@ -577,16 +577,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T014, ENV-T012 |
 | Bloquea a | ENV-T019, ENV-T037 |
 | Sprint propuesto | S03 (2026-12-07 → 2026-12-11) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/edit.rs |
 
 **Descripción.** Sustituye solo los bytes del valor conservando prefijo, export, clave, separador, comillas, sufijo y terminador. Usa el ValueCodec; si devuelve NeedsConversion, la conversión de estilo solo ocurre con un parámetro explícito.
 
 **Criterios de aceptación**
-- [ ] Tras SetValue, todos los bytes fuera del rango del valor editado son idénticos.
-- [ ] Sin parámetro de conversión, un valor no representable se rechaza.
-- [ ] Funciona en valores multilínea y sobre claves duplicadas afectando solo a la ocurrencia elegida.
+- [x] Tras SetValue, todos los bytes fuera del rango del valor editado son idénticos.
+- [x] Sin parámetro de conversión, un valor no representable se rechaza.
+- [x] Funciona en valores multilínea y sobre claves duplicadas afectando solo a la ocurrencia elegida.
 
 **Pruebas:** Tests unitarios por estilo de comillas, multilínea, Unicode y duplicados.
 
@@ -604,16 +604,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T012 |
 | Bloquea a | ENV-T019, ENV-T045 |
 | Sprint propuesto | S04 (2026-12-14 → 2026-12-18) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/edit.rs |
 
 **Descripción.** Valida el nombre de clave y crea un nodo sintético al final usando el salto de línea dominante; si el archivo no terminaba en newline, la propiedad se mantiene según la regla de la especificación.
 
 **Criterios de aceptación**
-- [ ] Casos cubiertos: archivo vacío, LF, CRLF dominante, empate, sin newline final.
-- [ ] Nombres inválidos se rechazan con error tipado sin valor.
-- [ ] Ningún nodo existente cambia sus bytes salvo el terminador exigido por la regla documentada.
+- [x] Casos cubiertos: archivo vacío, LF, CRLF dominante, empate, sin newline final.
+- [x] Nombres inválidos se rechazan con error tipado sin valor.
+- [x] Ningún nodo existente cambia sus bytes salvo el terminador exigido por la regla documentada.
 
 **Pruebas:** Tests unitarios por caso de terminador.
 
@@ -629,15 +629,15 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T012 |
 | Bloquea a | ENV-T019, ENV-T045 |
 | Sprint propuesto | S04 (2026-12-14 → 2026-12-18) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/edit.rs |
 
 **Descripción.** Marca como eliminada una única ocurrencia por ID, con su terminador, conservando las demás apariciones de la misma clave y la regla de newline final.
 
 **Criterios de aceptación**
-- [ ] Eliminar una ocurrencia duplicada deja intactas las otras.
-- [ ] Eliminar la última línea respeta la regla de newline final de la especificación.
+- [x] Eliminar una ocurrencia duplicada deja intactas las otras.
+- [x] Eliminar la última línea respeta la regla de newline final de la especificación.
 
 **Pruebas:** Tests unitarios con duplicate-keys.env y no-trailing-newline.env.
 
@@ -653,16 +653,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T016, ENV-T017, ENV-T018 |
 | Bloquea a | ENV-T021, ENV-T029, ENV-T046, ENV-T068 |
 | Sprint propuesto | S04 (2026-12-14 → 2026-12-18) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/history.rs |
 
 **Descripción.** apply/undo/redo con pilas en memoria; Batch transaccional (se valida todo antes de mutar); IDs de nodo estables entre undo/redo; dirty calculado comparando la serialización actual con el último snapshot confirmado, no por la pila.
 
 **Criterios de aceptación**
-- [ ] Undo de un lote restaura exactamente los bytes previos; redo restaura exactamente el lote.
-- [ ] Undo después de guardar marca el documento como modificado.
-- [ ] Un lote con una operación inválida no altera el documento.
+- [x] Undo de un lote restaura exactamente los bytes previos; redo restaura exactamente el lote.
+- [x] Undo después de guardar marca el documento como modificado.
+- [x] Un lote con una operación inválida no altera el documento.
 
 **Pruebas:** Tests unitarios de secuencias apply/undo/redo y de lote fallido.
 
@@ -682,15 +682,15 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T010 |
 | Bloquea a | ENV-T021, ENV-T066 |
 | Sprint propuesto | S03 (2026-12-07 → 2026-12-11) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/document.rs o src/domain/compare.rs |
 
 **Descripción.** Función pura que agrupa ocurrencias por clave con su recuento; solo diagnóstico, nunca representación primaria.
 
 **Criterios de aceptación**
-- [ ] duplicate-keys.env devuelve las claves repetidas con número de ocurrencias e IDs.
-- [ ] No determina qué ocurrencia prevalece.
+- [x] duplicate-keys.env devuelve las claves repetidas con número de ocurrencias e IDs.
+- [x] No determina qué ocurrencia prevalece.
 
 **Pruebas:** Tests unitarios.
 
@@ -734,15 +734,15 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T008 |
 | Bloquea a | ENV-T048 |
 | Sprint propuesto | S03 (2026-12-07 → 2026-12-11) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/secrets.rs (o similar) |
 
 **Descripción.** Clasificador por tokens del nombre de clave (SECRET, TOKEN, PASSWORD, KEY y similares listados en una constante), sin mirar valores. Documentado como heurístico.
 
 **Criterios de aceptación**
-- [ ] Tabla de casos positivos y negativos documentada y probada.
-- [ ] La función no recibe ni inspecciona valores.
+- [x] Tabla de casos positivos y negativos documentada y probada.
+- [x] La función no recibe ni inspecciona valores.
 
 **Pruebas:** Tests tabulares.
 
@@ -758,15 +758,15 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T010 |
 | Bloquea a | ENV-T032, ENV-T065 |
 | Sprint propuesto | S03 (2026-12-07 → 2026-12-11) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/compare.rs |
 
 **Descripción.** Función pura que devuelve Faltan / Solo en actual / En ambos (con recuento de ocurrencias) entre dos documentos, sin comparar ni exponer valores. Reutilizada por la revisión de conflictos (T032) y la comparación con .env.example (T065).
 
 **Criterios de aceptación**
-- [ ] Resultados correctos con duplicados y documentos vacíos.
-- [ ] La salida no contiene valores.
+- [x] Resultados correctos con duplicados y documentos vacíos.
+- [x] La salida no contiene valores.
 
 **Pruebas:** Tests unitarios.
 
@@ -782,15 +782,15 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T002 |
 | Bloquea a | ENV-T064 |
 | Sprint propuesto | S01 (2026-11-23 → 2026-11-27) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/domain/project.rs (o environment.rs) |
 
 **Descripción.** Tokens production/prod -> Production, staging/stage -> Staging, development/dev/local -> Development; sin coincidencia o con coincidencias múltiples -> Other.
 
 **Criterios de aceptación**
-- [ ] .env.production y prod.env -> Production; .env.local -> Development; .env.example y .env -> Other.
-- [ ] Nombres ambiguos (p. ej. .env.prod.local) -> Other.
+- [x] .env.production y prod.env -> Production; .env.local -> Development; .env.example y .env -> Other.
+- [x] Nombres ambiguos (p. ej. .env.prod.local) -> Other.
 
 **Pruebas:** Tests tabulares.
 
@@ -808,16 +808,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T001, ENV-T002 |
 | Bloquea a | ENV-T027, ENV-T028, ENV-T054 |
 | Sprint propuesto | S02 (2026-11-30 → 2026-12-04) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Explorador, Implementador, Security Reviewer |
 | Entregables / archivos | Matriz de resultados y algoritmo de guardado recomendado anotados en DECISIONS.md (D-12) y en la descripción de T028 |
 
 **Descripción.** Spike con timebox de 6 h sobre g_file_replace_contents con etag: base real del etag local, comportamiento si el archivo cambia entre lectura y reemplazo, conservación de modo 0600/0644 y propietario, archivo sin escritura, directorio sin permiso de creación (posible caída a escritura no atómica), enlaces simbólicos, enlaces duros y make_backup=false. Código desechable.
 
 **Criterios de aceptación**
-- [ ] Matriz completa de los casos listados con resultado observado y versión de GLib.
-- [ ] Declaración explícita de la ventana de carrera residual (TOCTOU) y de cuándo hay que bloquear el guardado.
-- [ ] Criterio de salida: estrategia propuesta para T028 o escalado al usuario si no existe garantía aceptable.
+- [x] Matriz completa de los casos listados con resultado observado y versión de GLib.
+- [x] Declaración explícita de la ventana de carrera residual (TOCTOU) y de cuándo hay que bloquear el guardado.
+- [x] Criterio de salida: estrategia propuesta para T028 o escalado al usuario si no existe garantía aceptable.
 
 **Pruebas:** Programa de prueba desechable con tempfile; evidencia de cada caso.
 
@@ -835,16 +835,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T008, ENV-T004 |
 | Bloquea a | ENV-T027, ENV-T029 |
 | Sprint propuesto | S04 (2026-12-14 → 2026-12-18) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/services/ (puerto), tests de apoyo |
 
 **Descripción.** Trait DocumentStorage, ResourceRef (URI), ReadSnapshot, DiskVersion (hash + etag + tamaño + mtime), StorageCapabilities y StorageError sin valores. FakeStorage configurable para simular cambios externos, fallos, ausencia, solo lectura y falta de reemplazo condicional.
 
 **Criterios de aceptación**
-- [ ] El núcleo y los servicios compilan sin GTK usando el puerto.
-- [ ] FakeStorage permite reproducir cada fila de TD §14.2 en tests puros.
-- [ ] StorageError no contiene contenido de archivo.
+- [x] El núcleo y los servicios compilan sin GTK usando el puerto.
+- [x] FakeStorage permite reproducir cada fila de TD §14.2 en tests puros.
+- [x] StorageError no contiene contenido de archivo.
 
 **Pruebas:** Tests unitarios del FakeStorage.
 
@@ -860,16 +860,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T026, ENV-T025 |
 | Bloquea a | ENV-T028, ENV-T031, ENV-T034, ENV-T043, ENV-T057 |
 | Sprint propuesto | S04 (2026-12-14 → 2026-12-18) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA, Security Reviewer |
 | Entregables / archivos | src/infrastructure/gio_storage.rs, src/infrastructure/filesystem.rs |
 
 **Descripción.** Apertura por GFile/URI con consulta NOFOLLOW_SYMLINKS: rechazo de enlaces simbólicos y no regulares, detección de solo lectura, etag, lectura asíncrona fuera del hilo principal, hash e identidad canónica. Nunca crea archivos.
 
 **Criterios de aceptación**
-- [ ] Archivo inexistente, directorio, FIFO, sin permiso de lectura y enlace simbólico devuelven errores distintos y legibles.
-- [ ] Un archivo sin permiso de escritura se abre como solo lectura.
-- [ ] Ninguna ruta de error crea o modifica archivos.
+- [x] Archivo inexistente, directorio, FIFO, sin permiso de lectura y enlace simbólico devuelven errores distintos y legibles.
+- [x] Un archivo sin permiso de escritura se abre como solo lectura.
+- [x] Ninguna ruta de error crea o modifica archivos.
 
 **Pruebas:** Tests de integración con tempfile para cada caso (sin display).
 
@@ -891,17 +891,17 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T027, ENV-T025 |
 | Bloquea a | ENV-T030, ENV-T067 |
 | Sprint propuesto | S05 (2026-12-21 → 2026-12-25) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA, Security Reviewer |
 | Entregables / archivos | src/infrastructure/gio_storage.rs |
 
 **Descripción.** Según la estrategia del spike T025: relee y compara hash y etag con la versión esperada inmediatamente antes, reemplaza con etag y make_backup=false, relee tras escribir para confirmar contenido y modo, y declara capacidades honestas. Cualquier duda => Conflict o error, nunca éxito.
 
 **Criterios de aceptación**
-- [ ] Un cambio externo entre lectura y guardado produce Conflict sin escribir.
-- [ ] Éxito solo se informa tras releer y verificar el hash del contenido escrito.
-- [ ] Si el modo de permisos no se conserva, se informa según la política aprobada (D-12).
-- [ ] No se crea ningún archivo de respaldo.
+- [x] Un cambio externo entre lectura y guardado produce Conflict sin escribir.
+- [x] Éxito solo se informa tras releer y verificar el hash del contenido escrito.
+- [x] Si el modo de permisos no se conserva, se informa según la política aprobada (D-12).
+- [x] No se crea ningún archivo de respaldo.
 
 **Pruebas:** Tests de integración con tempfile; la matriz completa se cubre en T067.
 
@@ -946,16 +946,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T019, ENV-T026 |
 | Bloquea a | ENV-T030, ENV-T031, ENV-T032, ENV-T035, ENV-T036, ENV-T041 |
 | Sprint propuesto | S04 (2026-12-14 → 2026-12-18) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/services/document_service.rs (sesión), src/domain/ |
 
 **Descripción.** Sesión por archivo con banderas separadas dirty/conflict/read-only/missing/saving y transiciones de TD §7.2 ante eventos (edición, cambio externo igual o distinto, borrado, guardado, recargar y descartar confirmado, guardar como). Lógica pura probada con FakeStorage.
 
 **Criterios de aceptación**
-- [ ] Cada fila de TD §7.2 tiene al menos un test.
-- [ ] Ninguna transición descarta ediciones locales sin el evento explícito de recargar y descartar.
-- [ ] dirty y conflict pueden coexistir y se exponen por separado.
+- [x] Cada fila de TD §7.2 tiene al menos un test.
+- [x] Ninguna transición descarta ediciones locales sin el evento explícito de recargar y descartar.
+- [x] dirty y conflict pueden coexistir y se exponen por separado.
 
 **Pruebas:** Tests unitarios por transición.
 
@@ -973,16 +973,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T029, ENV-T028 |
 | Bloquea a | ENV-T040, ENV-T069, ENV-T070 |
 | Sprint propuesto | S05 (2026-12-21 → 2026-12-25) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA, Security Reviewer |
 | Entregables / archivos | src/services/document_service.rs |
 
 **Descripción.** save: serializar, comprobar capacidades, replace_if_unchanged, actualizar base y limpiar dirty; si falla, conservar documento e historial. save_as: escribir en un recurso nuevo sin tocar el destino conflictivo; semántica posterior de la sesión según D-27.
 
 **Criterios de aceptación**
-- [ ] Un fallo de guardado deja documento, historial y estado dirty intactos.
-- [ ] Guardar como nunca modifica el archivo original en conflicto.
-- [ ] Un guardado con capacidades insuficientes se bloquea y sugiere Guardar como.
+- [x] Un fallo de guardado deja documento, historial y estado dirty intactos.
+- [x] Guardar como nunca modifica el archivo original en conflicto.
+- [x] Un guardado con capacidades insuficientes se bloquea y sugiere Guardar como.
 
 **Pruebas:** Tests con FakeStorage para éxito, conflicto, fallo de E/S y capacidades insuficientes.
 
@@ -1002,16 +1002,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T029, ENV-T027 |
 | Bloquea a | ENV-T042, ENV-T069 |
 | Sprint propuesto | S05 (2026-12-21 → 2026-12-25) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Implementador, QA |
 | Entregables / archivos | src/infrastructure/file_monitor.rs |
 
 **Descripción.** Monitor Gio por sesión (con seguimiento de movimientos), debounce corto definido como constante, relectura y comparación de hash con la base, supresión del eco del propio guardado solo por igualdad de snapshot, paso a Missing ante borrado/movimiento y a ReadOnly ante pérdida de permiso; rearmado del monitor cuando otro editor guarda por renombrado.
 
 **Criterios de aceptación**
-- [ ] Eventos repetidos producen una única comprobación/recarga.
-- [ ] El guardado propio no se marca como cambio externo.
-- [ ] Un guardado externo por renombrado (estilo vim/sed -i) sigue detectándose.
+- [x] Eventos repetidos producen una única comprobación/recarga.
+- [x] El guardado propio no se marca como cambio externo.
+- [x] Un guardado externo por renombrado (estilo vim/sed -i) sigue detectándose.
 
 **Pruebas:** Tests de integración con bucle principal GLib (sin display); matriz completa en T069.
 
@@ -1581,16 +1581,16 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T001, ENV-T025 |
 | Bloquea a | ENV-T055, ENV-T077 |
 | Sprint propuesto | S03 (2026-12-07 → 2026-12-11) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | Explorador, Implementador, Security Reviewer |
 | Entregables / archivos | Matriz de resultados y propuesta de política de permisos en DECISIONS.md (D-19); prototipo desechable |
 
 **Descripción.** Spike con timebox de 8 h sobre un prototipo mínimo empaquetado: seleccionar una carpeta con GtkFileDialog vía portal sin --filesystem=home, enumerarla, leer/escribir un dotenv con replace_contents, monitorizarlo y recuperar acceso tras reiniciar la app usando la referencia almacenada; comprobar también el paso de rutas por flatpak run con reenvío de archivos.
 
 **Criterios de aceptación**
-- [ ] Resultado documentado para enumerar, escribir, monitorizar y persistir tras reinicio.
-- [ ] Propuesta de finish-args mínimos con justificación.
-- [ ] Criterio de salida: Workspace viable en Flatpak con portales, o alternativa explícita para decisión del usuario.
+- [x] Resultado documentado para enumerar, escribir, monitorizar y persistir tras reinicio.
+- [x] Propuesta de finish-args mínimos con justificación.
+- [x] Criterio de salida: Workspace viable en Flatpak con portales, o alternativa explícita para decisión del usuario.
 
 **Pruebas:** Ejecución manual en sesión GNOME real con evidencia por caso.
 
@@ -1905,15 +1905,15 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 | Depende de | ENV-T028 |
 | Bloquea a | ENV-T075 |
 | Sprint propuesto | S05 (2026-12-21 → 2026-12-25) |
-| Estado | Backlog |
+| Estado | Done |
 | Agentes | QA, Security Reviewer |
 | Entregables / archivos | tests/file_conflicts.rs (o tests/save_safety.rs) |
 
 **Descripción.** Tests con tempfile: modo 0600 y 0644, archivo sin escritura, directorio sin permiso de creación, enlace simbólico, cambio externo justo antes de guardar, disco cambiado sin evento, archivo eliminado. Verifican ausencia de truncado, de sobrescritura silenciosa y de respaldos.
 
 **Criterios de aceptación**
-- [ ] Cada fila de la matriz tiene un test automatizado o una justificación de prueba manual.
-- [ ] Ningún caso termina con éxito declarado y contenido distinto en disco.
+- [x] Cada fila de la matriz tiene un test automatizado o una justificación de prueba manual.
+- [x] Ningún caso termina con éxito declarado y contenido distinto en disco.
 
 **Pruebas:** La propia suite; ejecutada en CI.
 
@@ -2117,6 +2117,8 @@ Ningún requisito del PRD §5 queda sin tarea. No se incluyen funciones de PRD �
 - [ ] Defectos P0 = 0.
 
 **Pruebas:** Suite completa + guion manual.
+
+**Verificaciones manuales de ENV-T067:** sustituir el destino tras el pre-vuelo con una pausa antes de `check_base`, comprobar UID/GID ajenos, `chattr +i`/ `+a`, directorio sticky de otro UID, ENOSPC en un montaje real, fallback nativo de `linkat` y etiqueta SELinux en Fedora nativo.
 
 <a id="env-t076"></a>
 #### ENV-T076 — Ejecutar la regresión del RC y preparar la evaluación go/no-go
